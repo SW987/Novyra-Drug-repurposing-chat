@@ -44,12 +44,11 @@ def test_gemini_integration():
     """Test Gemini API integration."""
     print("\n🔄 Testing Gemini API integration...")
 
-    # Hardcode API key for testing
-    api_key = "AIzaSyBDd4K-NL86geJG5Mz9r11YF4bOBRf6jb4"
+    settings = get_settings()
 
     try:
         # Configure Gemini
-        genai.configure(api_key=api_key)
+        genai.configure(api_key=settings.gemini_api_key)
 
         # Test embedding
         test_text = "Aspirin is commonly used for pain relief and has shown promise in cancer prevention."

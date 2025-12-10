@@ -11,6 +11,7 @@ from .schemas import (
     ChatRequest, ChatResponse, IngestRequest, IngestResponse,
     HealthResponse, IngestStatusResponse
 )
+import google.generativeai as genai # Import genai for global configuration
 
 # Global variables for lifespan management
 collection = None
@@ -25,6 +26,7 @@ async def lifespan(app: FastAPI):
     # Startup
     settings = get_settings()
     collection = init_vector_store(settings)
+    genai.configure(api_key=settings.gemini_api_key) # Configure Gemini client globally
     print(f"Initialized vector store at {settings.chroma_db_dir}")
     print(f"Collection: {settings.chroma_collection_name}")
     print(f"PDF source directory: {settings.docs_dir}")
@@ -76,19 +78,35 @@ async def chat_endpoint(
         raise HTTPException(status_code=500, detail="Vector store not initialized")
 
     try:
+        # Convert conversation history to dict format
+        conversation_history = None
+        if request.conversation_history:
+            conversation_history = [
+                {"role": msg.role, "content": msg.content}
+                for msg in request.conversation_history
+            ]
+
         result = chat_with_documents(
             session_id=request.session_id,
             drug_id=request.drug_id,
             message=request.message,
             collection=collection,
             settings=settings,
-            doc_id=request.doc_id
+            doc_id=request.doc_id,
+            conversation_history=conversation_history
         )
 
         return ChatResponse(**result)
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error processing chat request: {str(e)}")
+        error_msg = str(e)
+        # DEMO GUARANTEE: Handle dimension mismatch gracefully
+        if "Embedding dimension" in error_msg and "does not match collection dimensionality" in error_msg:
+            raise HTTPException(
+                status_code=500,
+                detail="System configuration error: Embedding dimensions don't match. Please restart the server."
+            )
+        raise HTTPException(status_code=500, detail=f"Error processing chat request: {error_msg}")
 
 
 @app.post("/ingest", response_model=IngestResponse)
@@ -179,7 +197,7 @@ async def list_drugs(
 async def startup_event():
     """Application startup event."""
     print("Drug Repurposing Chat API starting up...")
-    print("Make sure to set your OPENAI_API_KEY in .env file")
+    print("Make sure to set your GEMINI_API_KEY in .env file")
 
 
 if __name__ == "__main__":
@@ -187,5 +205,5 @@ if __name__ == "__main__":
         "app.main:app",
         host="0.0.0.0",
         port=8000,
-        reload=True
+        # reload=True # Removed for more stable debugging
     )

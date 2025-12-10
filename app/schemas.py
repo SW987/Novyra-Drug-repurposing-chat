@@ -2,12 +2,18 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 
 
+class Message(BaseModel):
+    """Individual message in conversation history."""
+    role: str = Field(..., description="Role: 'user' or 'assistant'")
+    content: str = Field(..., description="Message content")
+
 class ChatRequest(BaseModel):
     """Request model for chat endpoint."""
     session_id: str = Field(..., description="Unique session identifier")
     drug_id: str = Field(..., description="Drug identifier to filter documents")
     message: str = Field(..., description="User's chat message")
     doc_id: Optional[str] = Field(None, description="Optional specific document ID to query")
+    conversation_history: Optional[List[Message]] = Field(default_factory=list, description="Previous conversation messages for context")
 
 
 class Source(BaseModel):

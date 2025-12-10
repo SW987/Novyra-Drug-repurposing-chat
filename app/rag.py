@@ -8,8 +8,8 @@ from .schemas import Source
 
 
 def get_gemini_client(settings: Settings) -> genai:
-    """Configure and return Gemini API client."""
-    genai.configure(api_key=settings.gemini_api_key)
+    """Return Gemini API client."""
+    # genai.configure(api_key=settings.gemini_api_key) # Configured globally in main.py lifespan
     return genai
 
 
@@ -23,14 +23,18 @@ def embed_query(query: str, client: genai, model: str) -> List[float]:
         model: Embedding model name
 
     Returns:
-        Embedding vector
+        Embedding vector (guaranteed 768 dimensions)
     """
     result = genai.embed_content(
         model=model,
         content=query,
         task_type="retrieval_query"
     )
-    return result['embedding']
+    embedding = result['embedding']
+    # DEMO GUARANTEE: Verify dimensions
+    if len(embedding) != 768:
+        raise ValueError(f"Query embedding dimension mismatch! Expected 768, got {len(embedding)}")
+    return embedding
 
 
 def build_filter(drug_id: str, doc_id: Optional[str] = None) -> Dict[str, Any]:
@@ -85,12 +89,47 @@ def retrieve_relevant_chunks(
     return results
 
 
+def build_enhanced_query(current_message: str, conversation_history: Optional[List[Dict[str, str]]] = None) -> str:
+    """
+    Build an enhanced query that includes conversation context.
+
+    Args:
+        current_message: Current user message
+        conversation_history: List of previous {role: content} messages
+
+    Returns:
+        Enhanced query string with context
+    """
+    if not conversation_history:
+        return current_message
+
+    # Build context from recent conversation
+    context_parts = []
+    for msg in conversation_history[-6:]:  # Last 6 messages for context
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        if role == "user":
+            context_parts.append(f"User: {content}")
+        elif role == "assistant":
+            context_parts.append(f"Assistant: {content}")
+
+    conversation_context = "\n".join(context_parts)
+
+    enhanced_query = f"""Previous conversation:
+{conversation_context}
+
+Current question: {current_message}
+
+Please provide a comprehensive answer that builds on our previous discussion and synthesizes information from all available research documents."""
+
+    return enhanced_query
+
 def build_rag_prompt(query: str, context_chunks: List[str]) -> str:
     """
     Build a RAG prompt with retrieved context.
 
     Args:
-        query: User query
+        query: User query (may include conversation context)
         context_chunks: List of relevant text chunks
 
     Returns:
@@ -101,7 +140,9 @@ def build_rag_prompt(query: str, context_chunks: List[str]) -> str:
     prompt = f"""You are a helpful assistant specializing in drug repurposing research.
 Use the provided context from scientific papers to answer the user's question accurately and comprehensively.
 
-If the context doesn't contain enough information to fully answer the question, acknowledge this and provide what information is available.
+IMPORTANT: Synthesize information across ALL provided contexts to give a complete, unified answer. Do not just repeat information from individual contexts - combine and summarize the key findings from all relevant documents.
+
+If you have conversation context, build upon previous answers while incorporating new information.
 
 Context:
 {context}
@@ -184,10 +225,11 @@ def chat_with_documents(
     collection: Collection,
     settings: Settings,
     doc_id: Optional[str] = None,
-    top_k: int = 5
+    top_k: int = 15,  # Increased for better coverage
+    conversation_history: Optional[List[Dict[str, str]]] = None
 ) -> Dict[str, Any]:
     """
-    Main RAG pipeline: retrieve relevant chunks and generate answer.
+    Main RAG pipeline: retrieve relevant chunks and generate answer with conversation context.
 
     Args:
         session_id: Session identifier
@@ -197,11 +239,12 @@ def chat_with_documents(
         settings: Application settings
         doc_id: Optional document ID filter
         top_k: Number of chunks to retrieve
+        conversation_history: Previous messages for context
 
     Returns:
         Dictionary with answer and sources
     """
-    # Retrieve relevant chunks
+    # Retrieve relevant chunks (increased top_k for better coverage)
     results = retrieve_relevant_chunks(message, drug_id, collection, settings, doc_id, top_k)
 
     if not results.documents:
@@ -212,10 +255,13 @@ def chat_with_documents(
             "session_id": session_id
         }
 
-    # Generate answer using LLM
+    # Generate answer using LLM with conversation context
     client = get_gemini_client(settings)
     context_chunks = results.documents
-    answer = generate_answer(message, context_chunks, client, settings.gemini_chat_model)
+
+    # Build enhanced prompt with conversation history
+    enhanced_query = build_enhanced_query(message, conversation_history)
+    answer = generate_answer(enhanced_query, context_chunks, client, settings.gemini_chat_model)
 
     # Extract sources
     sources = extract_sources_from_results(results)

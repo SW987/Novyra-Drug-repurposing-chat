@@ -3,30 +3,28 @@ import google.generativeai as genai
 from pathlib import Path
 from typing import List, Dict, Any
 from chromadb import Collection
+import chromadb.utils.embedding_functions as embedding_functions # New import for embedding function
 
 from .config import Settings
 from .utils import parse_filename, chunk_text, extract_text_from_pdf, DocumentInfo
 from .vector_store import upsert_chunks
 
 
-def get_gemini_client(settings: Settings) -> genai.GenerativeModel:
-    """Configure Gemini API."""
-    genai.configure(api_key=settings.gemini_api_key)
-    return genai
-
-
-def embed_texts(texts: List[str], client: genai, model: str) -> List[List[float]]:
+def embed_texts(texts: List[str], settings: Settings, model: str) -> List[List[float]]:
     """
     Generate embeddings for a list of texts using Google Gemini.
 
     Args:
         texts: List of text strings to embed
-        client: Gemini client
+        settings: Application settings (for API key and model)
         model: Embedding model name
 
     Returns:
         List of embedding vectors
     """
+    # Ensure genai is configured (can be done globally in main.py lifespan, or here for standalone)
+    genai.configure(api_key=settings.gemini_api_key)
+
     embeddings = []
     for text in texts:
         result = genai.embed_content(
@@ -42,8 +40,7 @@ def process_pdf_file(
     pdf_path: Path,
     drug_folder: str,
     settings: Settings,
-    collection: Collection,
-    client: genai
+    collection: Collection
 ) -> Dict[str, Any]:
     """
     Process a single PDF file: parse filename, extract text, chunk, embed, and store.
@@ -53,7 +50,7 @@ def process_pdf_file(
         drug_folder: Name of the drug folder (e.g., "aspirin repurposing")
         settings: Application settings
         collection: ChromaDB collection
-        client: OpenAI client
+        # Removed: client: genai # No longer needed directly, use settings
 
     Returns:
         Dictionary with processing results
@@ -87,7 +84,7 @@ def process_pdf_file(
             }
 
         # Generate embeddings for chunks
-        embeddings = embed_texts(chunks, client, settings.gemini_embedding_model)
+        embeddings = embed_texts(chunks, settings, settings.gemini_embedding_model) # Pass settings instead of client
 
         # Prepare metadata for each chunk
         metadatas = []
@@ -172,8 +169,7 @@ def ingest_pdfs_from_directory(
             "results": []
         }
 
-    # Initialize Gemini client
-    client = get_gemini_client(settings)
+    # Removed: client = get_gemini_client(settings)
 
     all_results = []
     total_processed = 0
@@ -192,7 +188,7 @@ def ingest_pdfs_from_directory(
 
         for pdf_path in pdf_files:
             try:
-                result = process_pdf_file(pdf_path, drug_folder.name, settings, collection, client)
+                result = process_pdf_file(pdf_path, drug_folder.name, settings, collection) # Removed client argument
 
                 if "error" in result:
                     total_failed += 1
@@ -258,8 +254,7 @@ def ingest_single_document(
         }
 
     # Initialize Gemini client and generate embeddings
-    client = get_gemini_client(settings)
-    embeddings = embed_texts(chunks, client, settings.gemini_embedding_model)
+    embeddings = embed_texts(chunks, settings, settings.gemini_embedding_model) # Pass settings instead of client
 
     # Prepare metadata and IDs
     metadatas = []

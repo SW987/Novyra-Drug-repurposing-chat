@@ -14,11 +14,11 @@ import tarfile
 import time
 from pathlib import Path
 from typing import List, Dict, Any, Optional
-import google.generativeai as genai
+# Removed direct import of google.generativeai as genai here
 
 from .config import Settings, get_settings
 from .vector_store import init_vector_store
-from .ingestion import process_pdf_file
+from .ingestion import process_pdf_file # Removed get_gemini_client import
 from .utils import parse_filename
 
 
@@ -58,7 +58,7 @@ class PDFIngestionPipeline:
     def __init__(self, settings: Settings):
         self.settings = settings
         self.collection = init_vector_store(settings)
-        genai.configure(api_key=settings.gemini_api_key)
+        # Removed: self.gemini_client = get_gemini_client(settings) # No longer needed here
 
     def validate_and_ingest_pdf(self, pdf_path: str, drug_name: str) -> Dict[str, Any]:
         """
@@ -90,8 +90,8 @@ class PDFIngestionPipeline:
                 pdf_path=Path(pdf_path),
                 drug_folder=drug_folder,
                 settings=self.settings,
-                collection=self.collection,
-                client=genai  # Pass configured Gemini client
+                collection=self.collection
+                # Removed: client=self.gemini_client  # No longer passed directly
             )
 
             if "error" in result:

@@ -5,11 +5,12 @@ Simple in-memory test without ChromaDB to verify query responses
 
 import google.generativeai as genai
 from app.utils import extract_text_from_pdf
+from app.config import get_settings # Import get_settings
 from pathlib import Path
 import json
 
-# Configure Gemini
-genai.configure(api_key="AIzaSyBDd4K-NL86geJG5Mz9r11YF4bOBRf6jb4")
+# Configure Gemini (only needed if running this script standalone for direct API calls)
+# For testing the FastAPI server, this script should not configure genai directly.
 
 def load_pdf_content(drug_name):
     """Load PDF content for a drug."""
@@ -63,6 +64,8 @@ Answer based on the provided content. If the content doesn't contain enough info
 """
 
     try:
+        settings = get_settings()
+        genai.configure(api_key=settings.gemini_api_key)
         model = genai.GenerativeModel('models/gemini-2.0-flash-exp')
         response = model.generate_content(prompt)
 

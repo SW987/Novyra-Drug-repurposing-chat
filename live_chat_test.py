@@ -9,7 +9,7 @@ import json
 
 BASE_URL = "http://localhost:8000"
 
-def test_query(drug_id, message, description=""):
+def test_query(drug_id, message, description, doc_id=None):
     """Test a query and show the response."""
     print(f"\n{'='*60}")
     print(f"🧪 {description}")
@@ -30,8 +30,8 @@ def test_query(drug_id, message, description=""):
             data = response.json()
             print("✅ RESPONSE:")
             print(data['answer'])
-            print("
-📚 SOURCES:"            for i, source in enumerate(data['sources'], 1):
+            print("\n📚 SOURCES:")
+            for i, source in enumerate(data['sources'], 1):
                 print(f"  {i}. {source['doc_title']} (distance: {source['distance']:.3f})")
                 print(f"     Preview: {source['text_preview'][:100]}...")
             return True

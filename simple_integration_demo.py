@@ -44,8 +44,12 @@ def demonstrate_integration():
     with the RAG system.
     """
 
-    # Configure Gemini (hardcoded for demo)
-    genai.configure(api_key="AIzaSyBDd4K-NL86geJG5Mz9r11YF4bOBRf6jb4")
+    # Configure Gemini (uses environment variable)
+    import os
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        raise ValueError("GEMINI_API_KEY environment variable not set")
+    genai.configure(api_key=api_key)
 
     print("🚀 PDF Validation + RAG Integration Demo")
     print("=" * 50)

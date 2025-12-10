@@ -2,27 +2,55 @@ import chromadb
 from chromadb import Collection
 from typing import Dict, List, Any, Optional
 from .config import Settings
+import chromadb.utils.embedding_functions as embedding_functions
+import google.generativeai as genai # Needed for custom embedding function
+
+# Removed: from .ingestion import get_gemini_client # This caused circular import
+
+# Custom Embedding Function for Google Gemini
+class GeminiEmbeddingFunction(embedding_functions.EmbeddingFunction):
+    def __init__(self, api_key: str, model_name: str):
+        genai.configure(api_key=api_key)
+        self.model_name = model_name
+
+    def __call__(self, input: embedding_functions.Documents) -> embedding_functions.Embeddings:
+        embeddings = []
+        for text in input:
+            result = genai.embed_content(
+                model=self.model_name,
+                content=text,
+                task_type="retrieval_document"
+            )
+            embeddings.append(result['embedding'])
+        return embeddings
 
 
 def init_vector_store(settings: Settings) -> Collection:
     """
-    Initialize a persistent Chroma client and get/create a collection.
-
-    Args:
-        settings: Application settings
-
-    Returns:
-        ChromaDB collection for storing document chunks
+    Initialize ChromaDB persistent client and get/create collection.
+    Ensures the collection is created with the correct embedding function.
     """
-    # Initialize persistent client
     client = chromadb.PersistentClient(path=settings.chroma_db_dir)
 
-    # Get or create collection
-    collection = client.get_or_create_collection(
-        name=settings.chroma_collection_name,
-        metadata={"description": "Drug repurposing PDF documents chunks with embeddings"}
+    # Define the custom Gemini embedding function for ChromaDB
+    gemini_ef = GeminiEmbeddingFunction(
+        api_key=settings.gemini_api_key,
+        model_name=settings.gemini_embedding_model
     )
 
+    collection = client.get_or_create_collection(
+        name=settings.chroma_collection_name,
+        metadata={"hnsw:space": "cosine"},
+        embedding_function=gemini_ef  # Explicitly set the custom embedding function
+    )
+
+    # CRITICAL: Verify and enforce 768-dimensional embeddings for demo guarantee
+    # Test embedding to confirm dimensions
+    test_embedding = gemini_ef(["test query for dimension verification"])
+    if len(test_embedding[0]) != 768:
+        raise ValueError(f"Embedding dimension mismatch! Expected 768, got {len(test_embedding[0])}")
+
+    print(f"✅ Verified: Embedding function produces {len(test_embedding[0])}-dimensional vectors")
     return collection
 
 

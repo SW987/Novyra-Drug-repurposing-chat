@@ -37,7 +37,13 @@ run_ingestion_pipeline(drug_dirs)
 python app/main.py
 ```
 
-### 6. Ask Questions
+### 6. Launch Streamlit Demo (Alternative)
+```bash
+pip install streamlit
+streamlit run streamlit_demo.py
+```
+
+### 7. Ask Questions
 ```bash
 # Aspirin cancer benefits
 curl -X POST "http://localhost:8000/chat" \
@@ -50,13 +56,47 @@ curl -X POST "http://localhost:8000/chat" \
   -d '{"session_id": "test_2", "drug_id": "apomorphine", "message": "How is apomorphine repurposed?"}'
 ```
 
+## ✨ Key Features
+
+- **🔄 Conversation Context**: Maintains chat history for coherent multi-turn conversations
+- **📚 Unified Multi-Document Synthesis**: Combines information across ALL relevant documents for comprehensive answers
+- **🎯 Drug-Specific Queries**: Specialized responses for aspirin, apomorphine, and insulin
+- **🔍 Source Citations**: Every answer includes references to specific research papers
+- **🌐 Web Interface**: Beautiful Streamlit demo for easy interaction
+
 ## 💬 How to Use
 
-### Start the Server
+### Option 1: FastAPI Backend Only
 ```bash
 python app/main.py
 # Server runs at http://localhost:8000
 ```
+
+### Option 2: Streamlit Web Demo
+```bash
+# Terminal 1: Start backend
+python app/main.py
+
+# Terminal 2: Launch web demo
+streamlit run streamlit_demo.py
+# Opens at http://localhost:8501
+```
+
+**Quick Demo Launch:**
+```bash
+# Windows
+run_demo.bat
+
+# Linux/Mac
+./run_demo.sh
+```
+
+**Streamlit Demo Features:**
+- Drug selection dropdown (aspirin, apomorphine, insulin)
+- Chat interface with message history
+- Source citations with expandable previews
+- System status monitoring
+- Professional UI for demos and presentations
 
 ### Chat API
 ```bash
@@ -67,6 +107,19 @@ curl -X POST "http://localhost:8000/chat" \
     "session_id": "session_1",
     "drug_id": "aspirin",
     "message": "What are aspirin benefits for cancer prevention?"
+  }'
+
+# Chat with conversation history
+curl -X POST "http://localhost:8000/chat" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "session_id": "session_1",
+    "drug_id": "aspirin",
+    "message": "Tell me more about clinical trials",
+    "conversation_history": [
+      {"role": "user", "content": "What are aspirin benefits for cancer prevention?"},
+      {"role": "assistant", "content": "Aspirin shows promise in cancer prevention through COX-2 inhibition..."}
+    ]
   }'
 
 # Chat about specific drug
