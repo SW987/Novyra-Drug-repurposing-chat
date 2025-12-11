@@ -1,252 +1,231 @@
-# 🧬 Drug Repurposing Chat API
+# 🧬 Drug Repurposing Chat System
 
-AI-powered chat system for drug repurposing research. Ask questions about scientific papers and get evidence-based answers with source citations.
+**AI-powered research assistant** that answers questions about ANY drug using scientific literature via RAG (Retrieval-Augmented Generation). Supports pre-loaded drugs + dynamic research paper downloads for custom drugs.
 
-## ⚡ Quick Start (5 minutes)
+## ⚡ Quick Start (3 minutes)
 
-### 1. Install
+### 1. Install Dependencies
 ```bash
-pip install -r requirements.txt
+pip install -r requirements_streamlit.txt
 ```
 
-### 2. Get API Key
+### 2. Get Gemini API Key
 - Visit [Google AI Studio](https://makersuite.google.com/app/apikey)
 - Create API key and copy it
 
-### 3. Configure
+### 3. Configure Environment
 ```bash
-copy .env.example .env
-# Edit .env and add: GEMINI_API_KEY=your_key_here
+# Create .env file
+GEMINI_API_KEY=your_actual_api_key_here
+GEMINI_EMBEDDING_MODEL=models/embedding-001
+GEMINI_CHAT_MODEL=models/gemini-2.0-flash-exp
+CHROMA_DB_DIR=./data/chroma
+CHROMA_COLLECTION_NAME=drug_docs
+DOCS_DIR=./data/docs
 ```
 
-### 4. Process PDFs
+### 4. Launch the App
 ```bash
-python -c "
-from app.ingestion_pipeline import run_ingestion_pipeline
-drug_dirs = {
-    'aspirin': r'C:\Users\saadw\Downloads\repurposing research papers for 3 drugs\aspirin repurposing',
-    'apomorphine': r'C:\Users\saadw\Downloads\repurposing research papers for 3 drugs\apomorphine repurposing',
-    'insulin': r'C:\Users\saadw\Downloads\repurposing research papers for 3 drugs\insulin repurposing'
-}
-run_ingestion_pipeline(drug_dirs)
-"
-```
-
-### 5. Start Chat
-```bash
-python app/main.py
-```
-
-### 6. Launch Streamlit Demo (Alternative)
-```bash
-pip install streamlit
 streamlit run streamlit_demo.py
 ```
-
-### 7. Ask Questions
-```bash
-# Aspirin cancer benefits
-curl -X POST "http://localhost:8000/chat" \
-  -H "Content-Type: application/json" \
-  -d '{"session_id": "test_1", "drug_id": "aspirin", "message": "What are aspirin benefits for cancer?"}'
-
-# Apomorphine applications
-curl -X POST "http://localhost:8000/chat" \
-  -H "Content-Type: application/json" \
-  -d '{"session_id": "test_2", "drug_id": "apomorphine", "message": "How is apomorphine repurposed?"}'
-```
+**That's it!** Opens at `http://localhost:8501` 🎉
 
 ## ✨ Key Features
 
-- **🔄 Conversation Context**: Maintains chat history for coherent multi-turn conversations
-- **📚 Unified Multi-Document Synthesis**: Combines information across ALL relevant documents for comprehensive answers
-- **🎯 Drug-Specific Queries**: Specialized responses for aspirin, apomorphine, and insulin
-- **🔍 Source Citations**: Every answer includes references to specific research papers
-- **🌐 Web Interface**: Beautiful Streamlit demo for easy interaction
+- **🎯 Dual Drug Support**:
+  - **Pre-loaded Drugs**: Aspirin, apomorphine, insulin (instant chat)
+  - **Custom Drugs**: Enter ANY drug name → auto-download research papers → enable chat
+
+- **🔄 Smart Research Pipeline**:
+  - PubMed Central search for repurposing studies
+  - Open access PDF download and validation
+  - Automatic text extraction and chunking
+  - Vector embeddings for semantic search
+
+- **💬 Intelligent Chat**:
+  - RAG-powered answers from scientific literature
+  - Conversation history and context awareness
+  - Source citations with research paper previews
+  - Multi-document synthesis for comprehensive answers
+
+- **🚀 Unified Deployment**: Single Streamlit app (no separate backend needed)
 
 ## 💬 How to Use
 
-### Option 1: FastAPI Backend Only
+### Launch the Complete System
 ```bash
-python app/main.py
-# Server runs at http://localhost:8000
-```
-
-### Option 2: Streamlit Web Demo
-```bash
-# Terminal 1: Start backend
-python app/main.py
-
-# Terminal 2: Launch web demo
 streamlit run streamlit_demo.py
-# Opens at http://localhost:8501
 ```
+**Opens at:** `http://localhost:8501`
 
-**Quick Demo Launch:**
-```bash
-# Windows
-run_demo.bat
+### Interface Options
 
-# Linux/Mac
-./run_demo.sh
-```
+#### Option A: Pre-loaded Drugs (Instant Access)
+- Select from dropdown: **Aspirin**, **Apomorphine**, or **Insulin**
+- Start chatting immediately with existing research data
+- Perfect for demos and presentations
 
-**Streamlit Demo Features:**
-- Drug selection dropdown (aspirin, apomorphine, insulin)
-- Chat interface with message history
-- Source citations with expandable previews
-- System status monitoring
-- Professional UI for demos and presentations
+#### Option B: Custom Drug Research (Dynamic)
+- Enter ANY drug name (e.g., metformin, hydroxychloroquine, statins)
+- System automatically:
+  - Searches PubMed for repurposing research
+  - Downloads open access PDFs
+  - Processes and indexes the content
+  - Enables intelligent chat about that drug
 
-### Chat API
-```bash
-# Basic chat
-curl -X POST "http://localhost:8000/chat" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "session_id": "session_1",
-    "drug_id": "aspirin",
-    "message": "What are aspirin benefits for cancer prevention?"
-  }'
+### Demo Features
+- **💊 Drug Selection**: Dropdown + custom input
+- **💬 Chat Interface**: Message history, context awareness
+- **📚 Source Citations**: Expandable paper previews with relevance scores
+- **⚡ Real-time Processing**: Progress bars for PDF downloads
+- **🔍 Research Integration**: Direct PubMed connectivity
 
-# Chat with conversation history
-curl -X POST "http://localhost:8000/chat" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "session_id": "session_1",
-    "drug_id": "aspirin",
-    "message": "Tell me more about clinical trials",
-    "conversation_history": [
-      {"role": "user", "content": "What are aspirin benefits for cancer prevention?"},
-      {"role": "assistant", "content": "Aspirin shows promise in cancer prevention through COX-2 inhibition..."}
-    ]
-  }'
+### Programmatic Usage
+```python
+# Use the integrated system programmatically
+from app.ingestion_pipeline import PDFIngestionPipeline
+from app.config import get_settings
 
-# Chat about specific drug
-curl -X POST "http://localhost:8000/chat" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "session_id": "session_2",
-    "drug_id": "apomorphine",
-    "message": "How is apomorphine being repurposed?"
-  }'
-```
+# Initialize
+settings = get_settings()
+pipeline = PDFIngestionPipeline(settings)
 
-### Response Format
-```json
-{
-  "answer": "Aspirin has shown promise in cancer prevention through COX-2 inhibition and anti-inflammatory effects...",
-  "sources": [
-    {
-      "doc_id": "PMC11242460",
-      "doc_title": "Aspirin Repurposing PMC11242460",
-      "text_preview": "Low-dose aspirin for the prevention of...",
-      "distance": 0.123
-    }
-  ],
-  "session_id": "session_1"
-}
-```
+# Download and process papers for any drug
+result = pipeline.download_and_ingest_drug_papers("metformin", max_papers=5)
+print(f"Downloaded: {result['downloaded']}, Ingested: {result['ingested']}")
 
-### Ingest More PDFs
-```bash
-# Ingest PDFs from directories
-python -c "
-from app.ingestion_pipeline import run_ingestion_pipeline
-drug_dirs = {'new_drug': '/path/to/new_drug/pdfs'}
-run_ingestion_pipeline(drug_dirs)
-"
+# Now chat about the drug using the integrated RAG system
+from streamlit_demo import make_chat_request
+
+response = make_chat_request(
+    drug_id="metformin",
+    message="What are metformin repurposing applications?",
+    session_id="demo_session"
+)
+print(response["answer"])
 ```
 
 ## ⚙️ Configuration
 
-Create `.env` file:
+### Environment Variables
+Create a `.env` file in the project root:
 ```bash
-GEMINI_API_KEY=your_api_key_here
-# Optional settings below (defaults shown)
+# Required
+GEMINI_API_KEY=your_actual_api_key_here
+
+# Optional (defaults shown)
 GEMINI_EMBEDDING_MODEL=models/embedding-001
 GEMINI_CHAT_MODEL=models/gemini-2.0-flash-exp
 CHROMA_DB_DIR=./data/chroma
+CHROMA_COLLECTION_NAME=drug_docs
+DOCS_DIR=./data/docs
 ```
 
-## 📁 PDF Organization
+### Pre-loaded Research Data
+The system comes with research papers for:
+- **Aspirin**: Cancer prevention & cardiovascular studies
+- **Apomorphine**: Parkinson's & addiction repurposing
+- **Insulin**: Metabolic research applications
 
-Put PDFs in folders like this:
-```
-downloads/
-├── aspirin repurposing/
-│   ├── aspirin_repurposing_PMC11242460.pdf
-│   └── aspirin_repurposing_PMC11866938.pdf
-├── apomorphine repurposing/
-│   └── apomorphine_repurposing_PMC5995787.pdf
-└── insulin repurposing/
-    └── insulin_repurposing_PMC11919260.pdf
-```
+### Dynamic Research Downloads
+For custom drugs, the system automatically:
+- Searches PubMed Central for repurposing studies
+- Downloads open access PDFs
+- Validates and processes the content
+- Makes it available for intelligent chat
 
-## 🔗 Integration
+**Note:** Not all drugs have open access research papers. Try: aspirin, metformin, hydroxychloroquine, statins.
 
-### With Existing Download Systems
-
-Add this to your existing download script:
-```python
-from app.ingestion_pipeline import PDFIngestionPipeline
-from app.config import get_settings
-
-# After downloading + validating PDF
-settings = get_settings()
-pipeline = PDFIngestionPipeline(settings)
-result = pipeline.validate_and_ingest_pdf(pdf_path, drug_name)
-```
-
-### Automated Processing
-```python
-from app.ingestion_pipeline import run_ingestion_pipeline
-
-drug_dirs = {
-    "aspirin": "/path/to/aspirin/pdfs",
-    "metformin": "/path/to/metformin/pdfs"
-}
-results = run_ingestion_pipeline(drug_dirs)
-```
-
-## 🧪 Testing
+## 🧪 Testing & Validation
 
 ```bash
-# Test basic functionality
-python simple_test.py
+# Test the complete unified system
+python test_unified_system.py
 
-# Test integration
-python test_integration.py
+# Test basic backend functionality
+python test_self_contained.py
+
+# Test specific components
+python simple_test.py
+```
+
+## 🚀 Deployment Options
+
+### Streamlit Cloud (Recommended)
+1. Push code to GitHub
+2. Go to [share.streamlit.io](https://share.streamlit.io)
+3. Connect repository → Set main file: `streamlit_demo.py`
+4. Add secrets: `GEMINI_API_KEY`
+5. Deploy! 🎉
+
+### Local Development
+```bash
+# Install dependencies
+pip install -r requirements_streamlit.txt
+
+# Configure .env file with your Gemini API key
+
+# Launch app
+streamlit run streamlit_demo.py
 ```
 
 ## 🐛 Troubleshooting
 
-**API Key Issues:**
-- Verify key in `.env` file
-- Check Google AI Studio account
-
-**PDF Processing:**
-- PDFs must not be password-protected
-- Ensure PDFs contain selectable text
-
-**Module Errors:**
+### API Key Issues
 ```bash
-pip install -r requirements.txt
+# Verify key in .env file
+echo $GEMINI_API_KEY
+
+# Check Google AI Studio account
+# Visit: https://makersuite.google.com/app/apikey
 ```
 
-**Vector DB Issues:**
+### PDF Download Issues
+- **"No OA PDF available"**: Normal for many drugs - try aspirin, metformin, hydroxychloroquine
+- **Network timeouts**: Check internet connection, try different drug
+- **Validation failures**: PDFs must contain selectable text, not images
+
+### Module Installation
 ```bash
-# Clear and restart
-rmdir /s data\chroma
-python -c "from app.ingestion_pipeline import run_ingestion_pipeline; run_ingestion_pipeline(your_dirs)"
+# For deployment issues
+pip install -r requirements_streamlit.txt
+
+# Clear cache if needed
+pip cache purge
 ```
 
-## 📋 API Reference
+### Vector Database Issues
+```bash
+# Reset database
+rm -rf data/chroma
 
-- `POST /chat` - Ask questions about drugs
-- `POST /ingest-pdfs` - Process PDF directories
-- `GET /health` - Check system status
-- `GET /docs` - Interactive API documentation
+# Restart the app - it will rebuild automatically
+streamlit run streamlit_demo.py
+```
+
+### Common Issues
+- **"Module not found"**: Run from project root directory
+- **"API key invalid"**: Verify key in Google AI Studio
+- **"No papers found"**: Try different drug names or check spelling
+- **"Streamlit not working"**: Ensure port 8501 is available
+
+## 📊 System Architecture
+
+```
+🖥️  Streamlit App (Single Deployment)
+├── 🎨 Frontend UI
+│   ├── Drug Selection (pre-loaded + custom)
+│   ├── Chat Interface & History
+│   └── Progress Indicators
+├── 🔬 Research Pipeline
+│   ├── PubMed Search & Download
+│   ├── PDF Validation & Processing
+│   └── Vector Database Integration
+└── 🤖 RAG System
+    ├── Semantic Retrieval
+    ├── Context Synthesis
+    └── Gemini LLM Integration
+```
 
 ## 📄 License
 
@@ -254,4 +233,31 @@ MIT License - see LICENSE file.
 
 ---
 
-**Ready to chat with your drug repurposing research! 🧬💬**
+## 🎯 System Capabilities & Limitations
+
+### ✅ What It Does Well
+- **Pre-loaded Drugs**: Instant access to aspirin, apomorphine, insulin research
+- **Custom Drugs**: Automatic research paper discovery for any drug
+- **Intelligent Answers**: Evidence-based responses with source citations
+- **Research Integration**: Direct PubMed connectivity for latest studies
+- **User-Friendly**: No technical expertise required
+
+### ⚠️ Current Limitations
+- **Open Access Only**: Only free research papers (not paywalled content)
+- **PDF Format**: Requires open access PDFs, not all research is available
+- **English Only**: Currently optimized for English research papers
+- **Research Quality**: Answers based on available literature quality
+
+### 🔮 Future Enhancements
+- Additional research databases (bioRxiv, ResearchGate)
+- Multi-language support
+- Advanced filtering (date ranges, study types)
+- Collaborative features
+
+---
+
+**🧬 Ready to explore drug repurposing research with AI-powered insights!**
+
+**Launch:** `streamlit run streamlit_demo.py` 🚀
+
+**Demo Drugs:** aspirin, metformin, hydroxychloroquine, statins

@@ -52,6 +52,174 @@ def is_valid_pdf(file_path):
         return False
 
 
+# ----------------------------
+# PMC SEARCH
+# ----------------------------
+def search_pmc_articles(query, max_results=50):
+    url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
+
+    params = {
+        "db": "pmc",
+        "term": query,
+        "retmode": "json",
+        "retmax": max_results,
+        "sort": "relevance"
+    }
+
+    response = requests.get(url, params=params, timeout=15)
+    data = response.json()
+
+    pmc_ids = data.get("esearchresult", {}).get("idlist", [])
+    links = [f"https://www.ncbi.nlm.nih.gov/pmc/articles/PMC{id}/" for id in pmc_ids]
+    return pmc_ids, links
+
+
+# ----------------------------
+# GET PDF LINK FROM PMC OA API
+# ----------------------------
+def get_pdf_link_from_pmcid(pmcid):
+    api_url = f"https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi?id=PMC{pmcid}"
+
+    try:
+        r = requests.get(api_url, timeout=10)
+        root = ET.fromstring(r.text)
+
+        for link in root.findall(".//link"):
+            if link.attrib.get("format") == "pdf":
+                return link.attrib["href"]
+    except Exception as e:
+        print(f"[ERROR] OA fetch failed for PMC{pmcid}: {e}")
+
+    return None
+
+
+# ----------------------------
+# DOWNLOAD FILE STREAM (HTTP or FTP)
+# ----------------------------
+def download_stream(url, destination, timeout=20):
+    """Reliable binary download for HTTP and FTP."""
+    if url.startswith("ftp://"):
+        with urllib.request.urlopen(url, timeout=timeout) as response, open(destination, "wb") as out:
+            shutil.copyfileobj(response, out)
+    else:
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        with requests.get(url, stream=True, timeout=timeout, headers=headers) as r:
+            r.raise_for_status()
+            with open(destination, "wb") as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+
+
+# ----------------------------
+# PARSE TAR.GZ ARCHIVES
+# ----------------------------
+def extract_pdf_from_tar_gz(tar_path, output_path):
+    try:
+        with tarfile.open(tar_path, "r:gz") as tar:
+            for member in tar.getmembers():
+                if member.name.endswith(".pdf"):
+                    tar.extract(member, path=".")
+                    os.rename(member.name, output_path)
+                    return True
+    except Exception as e:
+        print("[ERROR] TAR extraction failed:", e)
+    return False
+
+
+# ----------------------------
+# HANDLE GZIP DECOMPRESSION SAFELY
+# ----------------------------
+def safe_gunzip(data):
+    """Safely decompress gzip data with fallback."""
+    try:
+        return gzip.decompress(data)
+    except Exception as e:
+        print(f"[WARN] GZIP decompress failed: {e}")
+        return None
+
+
+# ----------------------------
+# DOWNLOAD PDF (gzip-aware, tar-aware, fallback-aware)
+# ----------------------------
+def download_pdf(pdf_url, save_path, retries=3):
+    for attempt in range(1, retries + 1):
+        temp_file = save_path + ".tmp"
+
+        try:
+            print(f"[INFO] Attempt {attempt}: {pdf_url}")
+
+            download_stream(pdf_url, temp_file)
+            time.sleep(0.5)  # Avoid rate limiting
+
+            with open(temp_file, "rb") as f:
+                raw = f.read()
+
+            if len(raw) < 100:
+                print("[ERROR] Downloaded file too small")
+                continue
+
+            # ---- Detect .tar.gz archive ----
+            if pdf_url.endswith(".tar.gz") or raw[:2] == b"\x1f\x8b":
+                if pdf_url.endswith(".tar.gz"):
+                    print("[INFO] Detected TAR.GZ archive. Extracting...")
+                    if extract_pdf_from_tar_gz(temp_file, save_path):
+                        os.remove(temp_file)
+                        if is_valid_pdf(save_path):
+                            print("[SUCCESS] Extracted valid PDF")
+                            return True
+                    print("[SKIP] No valid PDF inside TAR.GZ")
+                    if os.path.exists(temp_file):
+                        os.remove(temp_file)
+                    return False
+
+            # ---- Detect gzip-wrapped PDFs ----
+            if raw[:2] == b"\x1f\x8b":
+                print("[INFO] Detected GZIPPED content → decompressing")
+                decompressed = safe_gunzip(raw)
+                if decompressed:
+                    raw = decompressed
+                else:
+                    print("[SKIP] GZIP decompression failed")
+                    if os.path.exists(temp_file):
+                        os.remove(temp_file)
+                    return False
+
+            # ---- Save actual PDF ----
+            with open(save_path, "wb") as f:
+                f.write(raw)
+
+            if os.path.exists(temp_file):
+                os.remove(temp_file)
+
+            if is_valid_pdf(save_path):
+                print(f"[SUCCESS] Valid PDF saved: {save_path}")
+                return True
+            else:
+                print("[SKIP] Invalid PDF content")
+                os.remove(save_path)
+                return False
+
+        except requests.exceptions.Timeout:
+            print("[ERROR] Download timeout")
+        except requests.exceptions.ConnectionError:
+            print("[ERROR] Connection error")
+        except Exception as e:
+            print(f"[ERROR] Download failed: {e}")
+
+        if os.path.exists(temp_file):
+            os.remove(temp_file)
+
+        if attempt < retries:
+            print("[INFO] Retrying in 2 seconds...\n")
+            time.sleep(2)
+
+    print("[SKIP] Invalid OA PDF link")
+    return False
+
+
 class PDFIngestionPipeline:
     """Automated pipeline for ingesting drug repurposing PDFs."""
 
@@ -156,21 +324,87 @@ class PDFIngestionPipeline:
             "results": results
         }
 
-    def ingest_from_pubmed_search(self, drug_name: str, max_papers: int = 10) -> Dict[str, Any]:
+    def download_and_ingest_drug_papers(self, drug_name: str, max_papers: int = 5) -> Dict[str, Any]:
         """
-        Example integration with PubMed search and download.
-        This is a template - customize based on your existing download system.
+        Search PubMed for drug repurposing papers, download PDFs, and ingest them.
+
+        Args:
+            drug_name: Drug name to search for
+            max_papers: Maximum number of papers to download
+
+        Returns:
+            Complete processing results
         """
         print(f"🔍 Searching PubMed for '{drug_name} repurposing'...")
 
-        # This would integrate with your existing PubMed API code
-        # For now, return a template structure
+        # Create output directory
+        full_query = f"{drug_name} repurposing"
+        output_folder = Path(self.settings.docs_dir) / full_query
+        output_folder.mkdir(exist_ok=True)
+
+        print(f"📁 Saving PDFs to: {output_folder}")
+
+        # Search PMC for articles
+        pmc_ids, article_links = search_pmc_articles(full_query, max_results=max_papers * 2)  # Get more to account for failures
+        print(f"📋 Found {len(pmc_ids)} PMC articles for '{drug_name}'")
+
+        if not pmc_ids:
+            return {
+                "success": False,
+                "drug": drug_name,
+                "papers_found": 0,
+                "downloaded": 0,
+                "ingested": 0,
+                "error": "No papers found in PubMed Central"
+            }
+
+        downloaded_count = 0
+        ingested_count = 0
+        results = []
+
+        # Download and process each paper
+        for pmcid in pmc_ids[:max_papers]:  # Limit to max_papers
+            print(f"\n📥 Processing PMC{pmcid}")
+
+            # Get PDF link
+            pdf_url = get_pdf_link_from_pmcid(pmcid)
+            if not pdf_url:
+                print(f"[SKIP] No OA PDF available for PMC{pmcid}")
+                results.append({"pmcid": pmcid, "status": "no_pdf_available"})
+                continue
+
+            # Download PDF
+            save_path = output_folder / f"{drug_name}_repurposing_PMC{pmcid}.pdf"
+            if download_pdf(pdf_url, str(save_path)):
+                downloaded_count += 1
+                print(f"[SUCCESS] Downloaded: {save_path}")
+
+                # Ingest the downloaded PDF
+                ingest_result = self.validate_and_ingest_pdf(str(save_path), drug_name)
+                results.append({
+                    "pmcid": pmcid,
+                    "downloaded": True,
+                    "ingested": ingest_result["success"],
+                    "ingest_result": ingest_result
+                })
+
+                if ingest_result["success"]:
+                    ingested_count += 1
+                    print(f"[SUCCESS] Ingested into vector DB: {ingest_result['chunks_created']} chunks")
+                else:
+                    print(f"[ERROR] Failed to ingest: {ingest_result.get('error', 'Unknown error')}")
+            else:
+                print(f"[FAILED] Could not download PDF for PMC{pmcid}")
+                results.append({"pmcid": pmcid, "status": "download_failed"})
 
         return {
+            "success": downloaded_count > 0,
             "drug": drug_name,
-            "papers_found": max_papers,
-            "status": "integration_template",
-            "note": "Customize this method to integrate with your PubMed download system"
+            "papers_found": len(pmc_ids),
+            "downloaded": downloaded_count,
+            "ingested": ingested_count,
+            "output_folder": str(output_folder),
+            "results": results
         }
 
 

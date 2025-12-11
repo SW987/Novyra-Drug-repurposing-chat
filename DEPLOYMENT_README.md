@@ -1,10 +1,14 @@
-# 🚀 Streamlit Demo Deployment Guide
+# 🚀 Unified Deployment Demo Guide
 
-## Quick Deploy to Streamlit Cloud
+## One-Click Deploy to Streamlit Cloud
+
+### ✨ What's New
+**Complete self-contained deployment** - Frontend, backend, AND dynamic PDF downloading all in one app!
 
 ### Step 1: Prepare Files
-- `streamlit_demo.py` - Main app
-- `requirements_streamlit.txt` - Dependencies
+- `streamlit_demo.py` - Main app (includes full RAG backend + PubMed integration)
+- `requirements_streamlit.txt` - All dependencies
+- `app/` directory - Complete backend modules
 - `.env` - Environment variables (API keys)
 
 ### Step 2: Deploy
@@ -13,29 +17,56 @@
 3. Set main file: `streamlit_demo.py`
 4. Add secrets:
    ```
-   GEMINI_API_KEY = "your_api_key_here"
-   API_BASE_URL = "https://your-fastapi-backend.onrender.com"
+   GEMINI_API_KEY = "your_actual_api_key_here"
+   GEMINI_EMBEDDING_MODEL = "models/embedding-001"
+   GEMINI_CHAT_MODEL = "models/gemini-2.0-flash-exp"
+   CHROMA_DB_DIR = "./data/chroma"
+   CHROMA_COLLECTION_NAME = "drug_docs"
+   DOCS_DIR = "./data/docs"
    ```
 5. Click Deploy!
 
-### Step 3: Backend Setup
-Deploy FastAPI backend separately:
-```bash
-# Use Render, Railway, or Heroku
-pip install -r requirements.txt
-python -m app.main
-```
-
 ### Demo Features
-- ✅ Drug selection (aspirin, apomorphine, insulin)
-- ✅ Real-time chat with research papers
-- ✅ Source citations with expandable previews
-- ✅ Conversation history
-- ✅ Professional UI for presentations
+- ✅ **Single deployment** - Everything in one app
+- ✅ **Pre-loaded drugs** (aspirin, apomorphine, insulin)
+- ✅ **Custom drug analysis** - Enter ANY drug name!
+- ✅ **Automatic PubMed search** & PDF download
+- ✅ **Real-time RAG processing** of downloaded papers
+- ✅ **Intelligent chat** with research-backed answers
+- ✅ **Source citations** with expandable previews
+- ✅ **Conversation history** and context
+- ✅ **Professional UI** for presentations
 
 ### Requirements
-- FastAPI backend must be running
 - Gemini API key configured
-- Vector database pre-populated with drug data
+- Internet access for PubMed searches
+- All backend modules in `app/` directory
 
-**Demo URL will be:** `https://your-app.streamlit.app`
+### 🚀 Demo URL
+**After deployment:** `https://your-app.streamlit.app`
+
+### 🔧 Complete Architecture
+```
+Streamlit App (Single Deployment)
+├── Frontend UI
+│   ├── Drug Selection (pre-loaded + custom)
+│   ├── Chat Interface
+│   └── Progress Indicators
+├── PubMed Integration
+│   ├── PMC Article Search
+│   ├── PDF Link Extraction
+│   └── Smart PDF Download
+├── RAG Backend
+│   ├── PDF Validation & Text Extraction
+│   ├── Document Chunking
+│   ├── Vector Store (ChromaDB)
+│   ├── Semantic Retrieval
+│   └── Gemini LLM Integration
+└── Research Data (dynamic + pre-loaded)
+```
+
+### 🎯 User Experience
+1. **Choose pre-loaded drug** → Instant chat
+2. **Enter custom drug** → Auto-download research → Chat enabled
+3. **Ask questions** → Get evidence-based answers from papers
+4. **Explore sources** → See original research citations
