@@ -86,6 +86,14 @@ def retrieve_relevant_chunks(
     # Query vector store with higher top_k for diversity
     initial_results = query_chunks(collection, query_embedding, where_filter, top_k * 2)
 
+    # If no results with drug filter, try broader search (remove drug filter)
+    if not initial_results.get("documents") or len(initial_results.get("documents", [])) == 0:
+        print(f"DEBUG: No results with drug filter, trying broader search")
+        broader_results = query_chunks(collection, query_embedding, None, top_k * 2)  # No filter
+        if broader_results.get("documents") and len(broader_results.get("documents", [])) > 0:
+            print(f"DEBUG: Found {len(broader_results.get('documents', []))} documents with broader search")
+            initial_results = broader_results
+
     # Extract data from dict (query_chunks now returns consistent dict format)
     ids_list = initial_results.get("ids", [])
     distances_list = initial_results.get("distances", [])
@@ -331,13 +339,55 @@ def chat_with_documents(
     Returns:
         Dictionary with answer and sources
     """
+    # Check for conversational/introductory messages
+    message_lower = message.lower().strip()
+
+    # Handle common conversational messages
+    conversational_responses = {
+        "hello": "Hello! I'm a drug repurposing research assistant. I can help you explore scientific research about drug repurposing opportunities. What drug would you like to learn about?",
+        "hi": "Hi there! I'm here to help you discover drug repurposing research from scientific papers. Which drug interests you?",
+        "hey": "Hey! Ready to explore drug repurposing research? Ask me about any drug and I'll search through scientific literature to find repurposing opportunities.",
+        "help": "I'm a drug repurposing research assistant powered by AI and scientific literature. I can:\n\n• Answer questions about any drug's repurposing potential\n• Search through research papers automatically\n• Provide evidence-based answers with citations\n• Analyze up to 10 scientific papers per drug\n\nTry asking: 'What are the repurposing opportunities for aspirin?' or enter any drug name!",
+        "what can you do": "I can help you explore drug repurposing research! I search through scientific papers to find:\n\n• New medical uses for existing drugs\n• Research evidence and clinical studies\n• Cancer treatments, neurological applications, and more\n\nJust ask about any drug, and I'll analyze the latest research for you.",
+        "how does this work": "I work by:\n\n1. **Searching** PubMed for research papers about your chosen drug\n2. **Downloading** open-access scientific papers (up to 10 per drug)\n3. **Analyzing** the content using AI to find repurposing opportunities\n4. **Answering** your questions with evidence from the research\n\nThe system learns about new drugs dynamically - no pre-loaded database needed!"
+    }
+
+    # Check for exact matches or close matches
+    for key, response in conversational_responses.items():
+        if key in message_lower or message_lower in [key, f"{key}?", f"{key}!", f"{key}."]:
+            return {
+                "answer": response,
+                "sources": [],
+                "session_id": session_id
+            }
+
+    # Also check for very short messages that are likely conversational
+    if len(message_lower.split()) <= 3 and message_lower not in ["cancer", "research", "papers", "drugs", "drug"]:
+        return {
+            "answer": "I'm a drug repurposing research assistant. I help explore scientific research about using existing drugs for new medical purposes. Try asking me about a specific drug like 'aspirin' or 'metformin', or ask 'help' to learn more about what I can do!",
+            "sources": [],
+            "session_id": session_id
+        }
+
     # Retrieve relevant chunks (increased top_k for better coverage)
     results = retrieve_relevant_chunks(message, drug_id, collection, settings, doc_id, top_k)
 
+    # Debug: Log what we found
+    print(f"DEBUG: Query '{message}' for drug '{drug_id}' found {len(results.get('documents', []))} documents")
+
     if not results["documents"]:
+        # Try to provide more helpful guidance
+        suggestions = [
+            f"Try asking about '{drug_id}' and 'cancer', 'clinical trials', or 'neurological applications'",
+            f"Ask about specific medical conditions or therapeutic areas",
+            f"The research papers may not contain information about this exact topic",
+            f"Try a different drug or more specific question"
+        ]
+
         return {
-            "answer": f"I couldn't find any relevant information about '{message}' in the documents for drug {drug_id}." +
-                     (f" (filtered to document {doc_id})" if doc_id else ""),
+            "answer": f"I searched through the available research papers but couldn't find specific information about '{message}' in relation to {drug_id}." +
+                     (f" (filtered to document {doc_id})" if doc_id else "") +
+                     "\n\n💡 **Suggestions:**\n" + "\n".join(f"• {s}" for s in suggestions[:2]),
             "sources": [],
             "session_id": session_id
         }
