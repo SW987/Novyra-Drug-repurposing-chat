@@ -285,11 +285,17 @@ def main():
 
         if mode == "Pre-loaded Drugs":
             # Drug selector for pre-loaded drugs
+            # Safely determine the index for the current drug
+            available_drugs_list = list(AVAILABLE_DRUGS.keys())
+            current_index = 0  # Default to first drug
+            if st.session_state.current_drug in available_drugs_list:
+                current_index = available_drugs_list.index(st.session_state.current_drug)
+
             selected_drug_display = st.selectbox(
                 "Choose a drug to discuss:",
-                options=list(AVAILABLE_DRUGS.keys()),
+                options=available_drugs_list,
                 format_func=lambda x: AVAILABLE_DRUGS[x],
-                index=list(AVAILABLE_DRUGS.keys()).index(st.session_state.current_drug),
+                index=current_index,
                 key="drug_selector"
             )
 
@@ -363,6 +369,55 @@ def main():
         st.write(f"**Focus:** {drug_focus}")
 
         st.subheader("Available Options")
+
+    st.write("DEBUG: Outside sidebar, before chat interface") # Debug print
+
+    # Chat Interface - Always visible in main content
+    st.markdown("---")
+    st.subheader("💬 Chat about Drug Repurposing")
+
+    st.write("DEBUG: Before chat history loop") # Debug print
+    # Display chat history
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+    st.write("DEBUG: Before chat input") # Debug print
+    # Chat input
+    if prompt := st.chat_input("Ask about drug repurposing research..."):
+        st.write("DEBUG: Chat input triggered") # Debug print
+        if not st.session_state.current_drug:
+            st.error("❌ Please select a drug first!")
+            st.stop()
+
+        # Add user message to history
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        # Get AI response
+        with st.chat_message("assistant"):
+            with st.spinner("🔍 Analyzing research papers..."):
+                try:
+                    result = make_chat_request(
+                        drug_id=st.session_state.current_drug,
+                        message=prompt,
+                        session_id=st.session_state.session_id
+                    )
+
+                    response_text = result["answer"]
+                    st.markdown(response_text)
+
+                    # Add assistant message to history
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": response_text
+                    })
+
+                except Exception as e:
+                    error_msg = f"❌ Error: {str(e)}"
+                    st.error(error_msg)
+                    st.session_state.messages.append({"role": "assistant", "content": error_msg})
 
 if __name__ == "__main__":
     main()
