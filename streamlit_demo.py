@@ -417,6 +417,7 @@ def main():
                     from app.rag import chat_with_documents
 
                     result = chat_with_documents(
+                        session_id=st.session_state.session_id,
                         drug_id=st.session_state.current_drug,
                         message=prompt,
                         collection=get_collection(),
