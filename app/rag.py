@@ -3,7 +3,7 @@ from typing import List, Dict, Any, Optional, Union
 from chromadb import Collection
 
 from .config import Settings
-from .vector_store import query_chunks, QueryResult
+from .vector_store import query_chunks
 from .schemas import Source, Message
 
 
@@ -61,7 +61,7 @@ def retrieve_relevant_chunks(
     settings: Settings,
     doc_id: Optional[str] = None,
     top_k: int = 5
-) -> QueryResult:
+) -> Dict[str, List]:
     """
     Retrieve relevant document chunks for a query.
 
@@ -74,7 +74,7 @@ def retrieve_relevant_chunks(
         top_k: Number of chunks to retrieve
 
     Returns:
-        QueryResult with relevant chunks
+        Dict with relevant chunks
     """
     # Get Gemini client and embed query
     client = get_gemini_client(settings)
@@ -86,36 +86,21 @@ def retrieve_relevant_chunks(
     # Query vector store with higher top_k for diversity
     initial_results = query_chunks(collection, query_embedding, where_filter, top_k * 2)
 
-    # Debug: Check what type of object we got
-    print(f"DEBUG: initial_results type: {type(initial_results)}")
-    print(f"DEBUG: hasattr ids: {hasattr(initial_results, 'ids')}")
-    print(f"DEBUG: hasattr documents: {hasattr(initial_results, 'documents')}")
-    if isinstance(initial_results, dict):
-        print(f"DEBUG: dict keys: {list(initial_results.keys())}")
+    # Extract data from dict (query_chunks now returns consistent dict format)
+    ids_list = initial_results.get("ids", [])
+    distances_list = initial_results.get("distances", [])
+    documents_list = initial_results.get("documents", [])
+    metadatas_list = initial_results.get("metadatas", [])
 
-    # Handle both QueryResult object and raw dict formats (for compatibility)
-    if hasattr(initial_results, 'ids') and hasattr(initial_results, 'documents'):
-        # QueryResult object format
-        ids_list = getattr(initial_results, 'ids', [])
-        distances_list = getattr(initial_results, 'distances', [])
-        documents_list = getattr(initial_results, 'documents', [])
-        metadatas_list = getattr(initial_results, 'metadatas', [])
-    else:
-        # Raw dict format (fallback) - ChromaDB returns nested structure
-        ids_list = initial_results.get("ids", [])
-        distances_list = initial_results.get("distances", [])
-        documents_list = initial_results.get("documents", [])
-        metadatas_list = initial_results.get("metadatas", [])
-
-        # Handle nested lists (ChromaDB returns lists of lists for batch queries)
-        if ids_list and isinstance(ids_list, list) and len(ids_list) > 0:
-            ids_list = ids_list[0] if isinstance(ids_list[0], list) else ids_list
-        if distances_list and isinstance(distances_list, list) and len(distances_list) > 0:
-            distances_list = distances_list[0] if isinstance(distances_list[0], list) else distances_list
-        if documents_list and isinstance(documents_list, list) and len(documents_list) > 0:
-            documents_list = documents_list[0] if isinstance(documents_list[0], list) else documents_list
-        if metadatas_list and isinstance(metadatas_list, list) and len(metadatas_list) > 0:
-            metadatas_list = metadatas_list[0] if isinstance(metadatas_list[0], list) else metadatas_list
+    # Handle nested lists (ChromaDB returns lists of lists for batch queries)
+    if ids_list and isinstance(ids_list, list) and len(ids_list) > 0 and isinstance(ids_list[0], list):
+        ids_list = ids_list[0]
+    if distances_list and isinstance(distances_list, list) and len(distances_list) > 0 and isinstance(distances_list[0], list):
+        distances_list = distances_list[0]
+    if documents_list and isinstance(documents_list, list) and len(documents_list) > 0 and isinstance(documents_list[0], list):
+        documents_list = documents_list[0]
+    if metadatas_list and isinstance(metadatas_list, list) and len(metadatas_list) > 0 and isinstance(metadatas_list[0], list):
+        metadatas_list = metadatas_list[0]
 
     # Implement diversity selection - avoid selecting too many chunks from the same document
     selected_chunks = []
@@ -290,12 +275,12 @@ def generate_answer(
     return response.text.strip()
 
 
-def extract_sources_from_results(results: QueryResult) -> List[Source]:
+def extract_sources_from_results(results: Dict[str, List]) -> List[Source]:
     """
     Extract source information from query results.
 
     Args:
-        results: QueryResult from vector store
+        results: Dict from vector store
 
     Returns:
         List of Source objects
@@ -303,7 +288,7 @@ def extract_sources_from_results(results: QueryResult) -> List[Source]:
     sources = []
 
     for i, (doc, metadata, distance, chunk_id) in enumerate(zip(
-        results.documents, results.metadatas, results.distances, results.ids
+        results["documents"], results["metadatas"], results["distances"], results["ids"]
     )):
         # Create text preview (first 200 characters)
         text_preview = doc[:200] + "..." if len(doc) > 200 else doc
@@ -349,7 +334,7 @@ def chat_with_documents(
     # Retrieve relevant chunks (increased top_k for better coverage)
     results = retrieve_relevant_chunks(message, drug_id, collection, settings, doc_id, top_k)
 
-    if not results.documents:
+    if not results["documents"]:
         return {
             "answer": f"I couldn't find any relevant information about '{message}' in the documents for drug {drug_id}." +
                      (f" (filtered to document {doc_id})" if doc_id else ""),
@@ -359,7 +344,7 @@ def chat_with_documents(
 
     # Generate answer using LLM with conversation context
     client = get_gemini_client(settings)
-    context_chunks = results.documents
+    context_chunks = results["documents"]
 
     # Build enhanced prompt with conversation history
     enhanced_query = build_enhanced_query(message, conversation_history)
