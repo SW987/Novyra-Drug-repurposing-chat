@@ -22,10 +22,15 @@ try:
 
     # Check if we need to initialize pre-loaded drugs
     try:
+        print("🔍 Checking for existing drug data...")
         # Try to query for existing aspirin data
         test_results = collection.get(where={"drug_id": "aspirin"}, limit=1)
-        if not test_results.get('documents'):
-            print("Initializing pre-loaded drugs...")
+        docs_found = len(test_results.get('documents', []))
+        print(f"📊 Aspirin data check: {docs_found} documents found")
+
+        if docs_found == 0:
+            print("🚀 Initializing pre-loaded drugs...")
+            st.info("🔄 Setting up drug database (2-3 minutes)...")
 
             # Initialize pre-loaded drugs
             pipeline = PDFIngestionPipeline(settings)
@@ -33,15 +38,25 @@ try:
 
             for drug in preloaded_drugs:
                 try:
-                    print(f"Loading {drug} data...")
+                    print(f"📥 Processing {drug}...")
+                    st.info(f"📥 Loading research for {drug}...")
                     result = pipeline.download_and_ingest_drug_papers(drug, max_papers=3)
-                    print(f"Loaded {result.get('downloaded', 0)} papers for {drug}")
+                    downloaded = result.get('downloaded', 0)
+                    print(f"✅ {drug}: {downloaded} papers loaded")
+                    st.success(f"✅ {drug}: {downloaded} papers ready")
                 except Exception as e:
-                    print(f"Failed to load {drug}: {e}")
+                    error_msg = str(e)[:100]
+                    print(f"❌ {drug} failed: {error_msg}")
+                    st.warning(f"⚠️ {drug}: {error_msg}...")
 
-            print("Pre-loaded drugs initialization complete!")
+            print("🎉 Pre-loaded drugs ready!")
+            st.success("🎉 Drug database initialized!")
+        else:
+            print("✅ Drug data already available")
     except Exception as e:
-        print(f"Error checking/initializing pre-loaded drugs: {e}")
+        error_msg = str(e)[:100]
+        print(f"❌ Initialization error: {error_msg}")
+        st.error(f"❌ Database setup failed: {error_msg}...")
 
 except ImportError as e:
     st.error(f"❌ Failed to import backend modules: {e}")
