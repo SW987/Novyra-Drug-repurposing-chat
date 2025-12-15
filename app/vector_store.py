@@ -50,7 +50,7 @@ def init_vector_store(settings: Settings) -> Collection:
     if len(test_embedding[0]) != 768:
         raise ValueError(f"Embedding dimension mismatch! Expected 768, got {len(test_embedding[0])}")
 
-    print(f"✅ Verified: Embedding function produces {len(test_embedding[0])}-dimensional vectors")
+    print(f"[OK] Verified: Embedding function produces {len(test_embedding[0])}-dimensional vectors")
     return collection
 
 
@@ -76,28 +76,12 @@ def upsert_chunks(
     )
 
 
-class QueryResult:
-    """Structured result from vector store query."""
-
-    def __init__(
-        self,
-        documents: List[str],
-        metadatas: List[Dict[str, Any]],
-        distances: List[float],
-        ids: List[str]
-    ):
-        self.documents = documents
-        self.metadatas = metadatas
-        self.distances = distances
-        self.ids = ids
-
-
 def query_chunks(
     collection: Collection,
     query_embedding: List[float],
     where: Optional[Dict[str, Any]] = None,
     top_k: int = 5
-) -> QueryResult:
+) -> Dict[str, List]:
     """
     Query the vector store for similar chunks.
 
@@ -117,31 +101,26 @@ def query_chunks(
         include=["documents", "metadatas", "distances"]
     )
 
-    # Handle ChromaDB result format (may be dict or object)
+    # Extract data from ChromaDB results
     documents = results.get("documents", [])
     metadatas = results.get("metadatas", [])
     distances = results.get("distances", [])
     ids = results.get("ids", [])
 
     # Handle nested lists (ChromaDB returns lists of lists for batch queries)
-    if documents and isinstance(documents, list) and len(documents) > 0 and isinstance(documents[0], list):
+    if isinstance(documents, list) and documents and isinstance(documents[0], list):
         documents = documents[0]
-    if metadatas and isinstance(metadatas, list) and len(metadatas) > 0 and isinstance(metadatas[0], list):
+    if isinstance(metadatas, list) and metadatas and isinstance(metadatas[0], list):
         metadatas = metadatas[0]
-    if distances and isinstance(distances, list) and len(distances) > 0 and isinstance(distances[0], list):
+    if isinstance(distances, list) and distances and isinstance(distances[0], list):
         distances = distances[0]
-    if ids and isinstance(ids, list) and len(ids) > 0 and isinstance(ids[0], list):
+    if isinstance(ids, list) and ids and isinstance(ids[0], list):
         ids = ids[0]
 
-    # Ensure we have proper lists
-    documents = documents if isinstance(documents, list) else []
-    metadatas = metadatas if isinstance(metadatas, list) else []
-    distances = distances if isinstance(distances, list) else []
-    ids = ids if isinstance(ids, list) else []
-
-    return QueryResult(
-        documents=documents,
-        metadatas=metadatas,
-        distances=distances,
-        ids=ids
-    )
+    # Return as dict for consistent handling
+    return {
+        "documents": documents if isinstance(documents, list) else [],
+        "metadatas": metadatas if isinstance(metadatas, list) else [],
+        "distances": distances if isinstance(distances, list) else [],
+        "ids": ids if isinstance(ids, list) else []
+    }

@@ -15,7 +15,7 @@ try:
     from app.config import Settings, get_settings
     from app.vector_store import init_vector_store
     from app.rag import chat_with_documents
-    from app.schemas import Message
+    from app.schemas import Message, Source
     settings = get_settings()
     collection = init_vector_store(settings)
 except ImportError as e:
@@ -363,6 +363,98 @@ def main():
         st.write(f"**Focus:** {drug_focus}")
 
         st.subheader("Available Options")
+
+        with st.expander("💊 Pre-loaded Drugs (Ready to chat)", expanded=True):
+            for drug_id, description in AVAILABLE_DRUGS.items():
+                st.write(f"• **{description.split(' - ')[0]}**: {description.split(' - ')[1]}")
+
+        with st.expander("🔬 Custom Drugs (Dynamic Download)", expanded=False):
+            st.write("Enter any drug name to automatically:")
+            st.write("• Search PubMed for repurposing research")
+            st.write("• Download up to 10 scientific papers")
+            st.write("• Process and analyze the research")
+            st.write("• Enable AI-powered chat about the drug")
+
+    # Chat Interface
+    st.markdown("---")
+    st.subheader("💬 Chat about Drug Repurposing")
+
+    # Display chat history
+    for message in st.session_state.messages:
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
+
+            # Show sources if this is an assistant message with sources
+            if message["role"] == "assistant" and "sources" in message:
+                with st.expander("📚 Sources & Citations", expanded=False):
+                    for source in message["sources"]:
+                        st.markdown(f"**{source.doc_title}**")
+                        st.markdown(f"*Document ID: {source.doc_id} | Distance: {source.distance:.3f}*")
+                        st.text_area(
+                            f"Preview ({source.doc_id})",
+                            source.text_preview,
+                            height=80,
+                            disabled=True,
+                            key=f"preview_{source.doc_id}_{len(st.session_state.messages)}"
+                        )
+                        st.markdown("---")
+
+    # Chat input
+    if prompt := st.chat_input("Ask about drug repurposing research..."):
+        if not st.session_state.current_drug:
+            st.error("❌ Please select a drug first!")
+            st.stop()
+
+        # Add user message to history
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        # Get AI response
+        with st.chat_message("assistant"):
+            with st.spinner("🔍 Analyzing research papers..."):
+                try:
+                    from app.rag import chat_with_documents
+
+                    result = chat_with_documents(
+                        drug_id=st.session_state.current_drug,
+                        message=prompt,
+                        collection=get_collection(),
+                        settings=get_settings()
+                    )
+
+                    response_text = result["answer"]
+                    sources = result.get("sources", [])
+
+                    # Display response
+                    st.markdown(response_text)
+
+                    # Show sources
+                    if sources:
+                        with st.expander("📚 Sources & Citations", expanded=False):
+                            for source in sources:
+                                st.markdown(f"**{source.doc_title}**")
+                                st.markdown(f"*Document ID: {source.doc_id} | Distance: {source.distance:.3f}*")
+                                st.text_area(
+                                    f"Preview ({source.doc_id})",
+                                    source.text_preview,
+                                    height=80,
+                                    disabled=True,
+                                    key=f"response_preview_{source.doc_id}_{len(st.session_state.messages)}"
+                                )
+                                st.markdown("---")
+
+                    # Add assistant message to history
+                    st.session_state.messages.append({
+                        "role": "assistant",
+                        "content": response_text,
+                        "sources": sources
+                    })
+
+                except Exception as e:
+                    error_msg = f"❌ Error: {str(e)}"
+                    st.error(error_msg)
+                    st.session_state.messages.append({"role": "assistant", "content": error_msg})
 
 if __name__ == "__main__":
     main()
