@@ -141,7 +141,7 @@ def process_custom_drug(drug_name):
         progress_bar.progress(30)
 
         # Run the integrated workflow
-        result = pipeline.download_and_ingest_drug_papers(drug_name, max_papers=3)
+        result = pipeline.download_and_ingest_drug_papers(drug_name, max_papers=10)
 
         progress_bar.progress(80)
 
@@ -346,7 +346,7 @@ def main():
 
             if st.session_state.current_drug and st.session_state.current_drug not in AVAILABLE_DRUGS:
                 st.info(f"📊 Currently analyzing: **{st.session_state.current_drug.title()}**")
-                st.warning("⚠️ This drug hasn't been processed yet. In full implementation, this would trigger automatic PDF download and RAG ingestion.")
+                
 
         st.markdown("---")
 

@@ -324,7 +324,7 @@ class PDFIngestionPipeline:
             "results": results
         }
 
-    def download_and_ingest_drug_papers(self, drug_name: str, max_papers: int = 5) -> Dict[str, Any]:
+    def download_and_ingest_drug_papers(self, drug_name: str, max_papers: int = 10) -> Dict[str, Any]:
         """
         Search PubMed for drug repurposing papers, download PDFs, and ingest them.
 
