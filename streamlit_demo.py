@@ -23,12 +23,23 @@ except ImportError as e:
     st.error("Make sure all backend files are in the app/ directory")
     st.stop()
 
-# Available drugs
+# Available drugs (pre-loaded)
 AVAILABLE_DRUGS = {
     "aspirin": "Aspirin - Cancer Prevention & Cardiovascular",
     "apomorphine": "Apomorphine - Parkinson's & Addiction Treatment",
     "insulin": "Insulin - Metabolic & Research Applications"
 }
+
+# Function to persist processed drugs across sessions (limited on free tier)
+@st.cache_data
+def load_persistent_drugs():
+    """Load previously processed drugs (limited persistence on free tier)"""
+    return set()
+
+@st.cache_data
+def save_persistent_drugs(drugs_set):
+    """Save processed drugs (limited persistence on free tier)"""
+    return drugs_set.copy()
 
 def init_session_state():
     """Initialize session state for chat history"""
@@ -39,7 +50,17 @@ def init_session_state():
     if "session_id" not in st.session_state:
         st.session_state.session_id = f"streamlit_{int(time.time())}"
     if "processed_drugs" not in st.session_state:
-        st.session_state.processed_drugs = set()  # Track which custom drugs have been processed
+        # Load any persistently saved drugs and merge with session
+        persistent_drugs = load_persistent_drugs()
+        # Also discover drugs that exist in the vector store
+        existing_drugs = discover_existing_drugs()
+        st.session_state.processed_drugs = persistent_drugs.union(existing_drugs)  # Track which custom drugs have been processed
+
+        # Add existing drugs to AVAILABLE_DRUGS so they appear as pre-loaded options
+        global AVAILABLE_DRUGS
+        for drug in existing_drugs:
+            if drug not in AVAILABLE_DRUGS:
+                AVAILABLE_DRUGS[drug] = f"{drug.title()} - Custom Analysis"
 
 @st.cache_resource
 def get_collection():
@@ -51,9 +72,47 @@ def get_collection():
         settings = get_settings()
         return init_vector_store(settings)
 
+@st.cache_data
+def discover_existing_drugs():
+    """Discover drugs that already have data in the vector store"""
+    try:
+        collection = get_collection()
+        # Get all metadata to find unique drug_ids
+        results = collection.get(include=["metadatas"], limit=10000)  # Large limit to get all
+        existing_drugs = set()
+
+        if results.get('metadatas'):
+            for metadata in results['metadatas']:
+                if metadata and 'drug_id' in metadata:
+                    existing_drugs.add(metadata['drug_id'])
+
+        return existing_drugs
+    except Exception:
+        return set()
+
 def process_custom_drug(drug_name):
     """Process a custom drug: download papers, extract text, and make available for chat"""
     try:
+        # Check if drug is already processed in current session
+        if drug_name in st.session_state.processed_drugs:
+            st.success(f"✅ '{drug_name.title()}' already processed and ready for chat!")
+            return True
+
+        # Check if drug data already exists in vector store
+        collection = get_collection()
+        try:
+            # Query for existing drug data
+            existing_docs = collection.get(where={"drug_id": drug_name}, limit=1)
+            if existing_docs['documents']:
+                st.success(f"✅ '{drug_name.title()}' data found in database - ready for chat!")
+                st.session_state.processed_drugs.add(drug_name)
+                # Add to available drugs for future sessions
+                AVAILABLE_DRUGS[drug_name] = f"{drug_name.title()} - Custom Analysis"
+                return True
+        except Exception:
+            # Vector store might be empty or corrupted, continue with download
+            pass
+
         # Import the integrated download system
         from app.ingestion_pipeline import PDFIngestionPipeline
         from app.config import get_settings
@@ -92,8 +151,12 @@ def process_custom_drug(drug_name):
             st.success(f"🎉 Successfully processed {result['downloaded']} papers for '{drug_name}'!")
             st.info(f"📊 Found: {result['papers_found']} papers, Downloaded: {result['downloaded']}, Ingested: {result['ingested']}")
 
-            # Mark as processed
+            # Mark as processed and save persistently
             st.session_state.processed_drugs.add(drug_name)
+            save_persistent_drugs(st.session_state.processed_drugs)
+
+            # Add to AVAILABLE_DRUGS so it appears as pre-loaded option for future sessions
+            AVAILABLE_DRUGS[drug_name] = f"{drug_name.title()} - Custom Analysis"
 
             # Show that chat is now available
             st.info("💬 You can now chat about this drug using the research papers!")
