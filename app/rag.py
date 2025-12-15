@@ -86,15 +86,35 @@ def retrieve_relevant_chunks(
     # Query vector store with higher top_k for diversity
     initial_results = query_chunks(collection, query_embedding, where_filter, top_k * 2)
 
+    # Handle both QueryResult object and raw dict formats (for compatibility)
+    if hasattr(initial_results, 'ids'):
+        # QueryResult object format
+        ids_list = initial_results.ids
+        distances_list = initial_results.distances
+        documents_list = initial_results.documents
+        metadatas_list = initial_results.metadatas
+    else:
+        # Raw dict format (fallback)
+        ids_list = initial_results.get("ids", [[]])
+        distances_list = initial_results.get("distances", [[]])
+        documents_list = initial_results.get("documents", [[]])
+        metadatas_list = initial_results.get("metadatas", [[]])
+
+        # Handle nested lists (ChromaDB returns lists of lists)
+        ids_list = ids_list[0] if ids_list and isinstance(ids_list[0], list) else ids_list
+        distances_list = distances_list[0] if distances_list and isinstance(distances_list[0], list) else distances_list
+        documents_list = documents_list[0] if documents_list and isinstance(documents_list[0], list) else documents_list
+        metadatas_list = metadatas_list[0] if metadatas_list and isinstance(metadatas_list[0], list) else metadatas_list
+
     # Implement diversity selection - avoid selecting too many chunks from the same document
     selected_chunks = []
     doc_counts = {}
 
     for i, (doc_id, distance, document, metadata) in enumerate(zip(
-        initial_results.ids,
-        initial_results.distances,
-        initial_results.documents,
-        initial_results.metadatas
+        ids_list,
+        distances_list,
+        documents_list,
+        metadatas_list
     )):
         current_doc = metadata.get('doc_id', 'unknown')
         if doc_counts.get(current_doc, 0) < 5:  # Limit to 5 chunks per document
