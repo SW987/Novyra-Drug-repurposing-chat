@@ -30,16 +30,21 @@ AVAILABLE_DRUGS = {
     "insulin": "Insulin - Metabolic & Research Applications"
 }
 
-# Function to persist processed drugs across sessions (limited on free tier)
+# Global variable to store processed drugs across sessions (limited on free tier)
+_persistent_drugs_cache = set()
 @st.cache_data
 def load_persistent_drugs():
     """Load previously processed drugs (limited persistence on free tier)"""
-    return set()
+    global _persistent_drugs_cache
+    return _persistent_drugs_cache.copy()
 
 @st.cache_data
 def save_persistent_drugs(drugs_set):
     """Save processed drugs (limited persistence on free tier)"""
-    return drugs_set.copy()
+    global _persistent_drugs_cache
+    _persistent_drugs_cache = drugs_set.copy()
+    # Force cache invalidation by returning a new value
+    return _persistent_drugs_cache.copy()
 
 def init_session_state():
     """Initialize session state for chat history"""
@@ -106,6 +111,7 @@ def process_custom_drug(drug_name):
             if existing_docs['documents']:
                 st.success(f"✅ '{drug_name.title()}' data found in database - ready for chat!")
                 st.session_state.processed_drugs.add(drug_name)
+                save_persistent_drugs(st.session_state.processed_drugs)  # Save persistently
                 # Add to available drugs for future sessions
                 AVAILABLE_DRUGS[drug_name] = f"{drug_name.title()} - Custom Analysis"
                 return True
@@ -473,3 +479,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
