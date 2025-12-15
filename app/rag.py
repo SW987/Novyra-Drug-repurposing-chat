@@ -91,10 +91,10 @@ def retrieve_relevant_chunks(
     doc_counts = {}
 
     for i, (doc_id, distance, document, metadata) in enumerate(zip(
-        initial_results['ids'],
-        initial_results['distances'],
-        initial_results['documents'],
-        initial_results['metadatas']
+        initial_results.ids,
+        initial_results.distances,
+        initial_results.documents,
+        initial_results.metadatas
     )):
         current_doc = metadata.get('doc_id', 'unknown')
         if doc_counts.get(current_doc, 0) < 5:  # Limit to 5 chunks per document
