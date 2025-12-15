@@ -24,9 +24,8 @@ EXPOSE 8501
 # Health check (disabled for Railway)
 # HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health
 
-# Create entrypoint script
-RUN echo '#!/bin/bash\nstreamlit run streamlit_demo.py --server.port=$PORT --server.address=0.0.0.0 --server.headless=true --server.enableCORS=false --server.enableXsrfProtection=false' > /app/start.sh && \
-    chmod +x /app/start.sh
+# Make start script executable
+RUN chmod +x /app/start.sh
 
 # Start command
 CMD ["/app/start.sh"]
