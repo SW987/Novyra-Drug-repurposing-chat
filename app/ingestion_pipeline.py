@@ -144,15 +144,15 @@ def safe_gunzip(data):
 # ----------------------------
 # DOWNLOAD PDF (gzip-aware, tar-aware, fallback-aware)
 # ----------------------------
-def download_pdf(pdf_url, save_path, retries=3):
+def download_pdf(pdf_url, save_path, retries=2):
     for attempt in range(1, retries + 1):
         temp_file = save_path + ".tmp"
 
         try:
             print(f"[INFO] Attempt {attempt}: {pdf_url}")
 
-            download_stream(pdf_url, temp_file)
-            time.sleep(0.5)  # Avoid rate limiting
+            download_stream(pdf_url, temp_file, timeout=10)  # Shorter timeout
+            time.sleep(0.2)  # Shorter delay
 
             with open(temp_file, "rb") as f:
                 raw = f.read()
@@ -324,7 +324,7 @@ class PDFIngestionPipeline:
             "results": results
         }
 
-    def download_and_ingest_drug_papers(self, drug_name: str, max_papers: int = 10) -> Dict[str, Any]:
+    def download_and_ingest_drug_papers(self, drug_name: str, max_papers: int = 2) -> Dict[str, Any]:
         """
         Search PubMed for drug repurposing papers, download PDFs, and ingest them.
 
@@ -348,7 +348,7 @@ class PDFIngestionPipeline:
         print(f"📁 Saving PDFs to: {output_folder}")
 
         # Search PMC for articles
-        pmc_ids, article_links = search_pmc_articles(full_query, max_results=max_papers * 2)  # Get more to account for failures
+        pmc_ids, article_links = search_pmc_articles(full_query, max_results=max_papers * 2)  # Search broadly, download selectively
         print(f"📋 Found {len(pmc_ids)} PMC articles for '{drug_name}'")
 
         if not pmc_ids:
