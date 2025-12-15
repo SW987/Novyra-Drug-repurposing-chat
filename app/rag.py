@@ -86,25 +86,36 @@ def retrieve_relevant_chunks(
     # Query vector store with higher top_k for diversity
     initial_results = query_chunks(collection, query_embedding, where_filter, top_k * 2)
 
-    # Handle both QueryResult object and raw dict formats (for compatibility)
-    if hasattr(initial_results, 'ids'):
-        # QueryResult object format
-        ids_list = initial_results.ids
-        distances_list = initial_results.distances
-        documents_list = initial_results.documents
-        metadatas_list = initial_results.metadatas
-    else:
-        # Raw dict format (fallback)
-        ids_list = initial_results.get("ids", [[]])
-        distances_list = initial_results.get("distances", [[]])
-        documents_list = initial_results.get("documents", [[]])
-        metadatas_list = initial_results.get("metadatas", [[]])
+    # Debug: Check what type of object we got
+    print(f"DEBUG: initial_results type: {type(initial_results)}")
+    print(f"DEBUG: hasattr ids: {hasattr(initial_results, 'ids')}")
+    print(f"DEBUG: hasattr documents: {hasattr(initial_results, 'documents')}")
+    if isinstance(initial_results, dict):
+        print(f"DEBUG: dict keys: {list(initial_results.keys())}")
 
-        # Handle nested lists (ChromaDB returns lists of lists)
-        ids_list = ids_list[0] if ids_list and isinstance(ids_list[0], list) else ids_list
-        distances_list = distances_list[0] if distances_list and isinstance(distances_list[0], list) else distances_list
-        documents_list = documents_list[0] if documents_list and isinstance(documents_list[0], list) else documents_list
-        metadatas_list = metadatas_list[0] if metadatas_list and isinstance(metadatas_list[0], list) else metadatas_list
+    # Handle both QueryResult object and raw dict formats (for compatibility)
+    if hasattr(initial_results, 'ids') and hasattr(initial_results, 'documents'):
+        # QueryResult object format
+        ids_list = getattr(initial_results, 'ids', [])
+        distances_list = getattr(initial_results, 'distances', [])
+        documents_list = getattr(initial_results, 'documents', [])
+        metadatas_list = getattr(initial_results, 'metadatas', [])
+    else:
+        # Raw dict format (fallback) - ChromaDB returns nested structure
+        ids_list = initial_results.get("ids", [])
+        distances_list = initial_results.get("distances", [])
+        documents_list = initial_results.get("documents", [])
+        metadatas_list = initial_results.get("metadatas", [])
+
+        # Handle nested lists (ChromaDB returns lists of lists for batch queries)
+        if ids_list and isinstance(ids_list, list) and len(ids_list) > 0:
+            ids_list = ids_list[0] if isinstance(ids_list[0], list) else ids_list
+        if distances_list and isinstance(distances_list, list) and len(distances_list) > 0:
+            distances_list = distances_list[0] if isinstance(distances_list[0], list) else distances_list
+        if documents_list and isinstance(documents_list, list) and len(documents_list) > 0:
+            documents_list = documents_list[0] if isinstance(documents_list[0], list) else documents_list
+        if metadatas_list and isinstance(metadatas_list, list) and len(metadatas_list) > 0:
+            metadatas_list = metadatas_list[0] if isinstance(metadatas_list[0], list) else metadatas_list
 
     # Implement diversity selection - avoid selecting too many chunks from the same document
     selected_chunks = []

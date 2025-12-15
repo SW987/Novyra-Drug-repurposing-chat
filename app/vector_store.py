@@ -124,14 +124,24 @@ def query_chunks(
     ids = results.get("ids", [])
 
     # Handle nested lists (ChromaDB returns lists of lists for batch queries)
-    documents = documents[0] if documents and isinstance(documents[0], list) else documents
-    metadatas = metadatas[0] if metadatas and isinstance(metadatas[0], list) else metadatas
-    distances = distances[0] if distances and isinstance(distances[0], list) else distances
-    ids = ids[0] if ids and isinstance(ids[0], list) else ids
+    if documents and isinstance(documents, list) and len(documents) > 0 and isinstance(documents[0], list):
+        documents = documents[0]
+    if metadatas and isinstance(metadatas, list) and len(metadatas) > 0 and isinstance(metadatas[0], list):
+        metadatas = metadatas[0]
+    if distances and isinstance(distances, list) and len(distances) > 0 and isinstance(distances[0], list):
+        distances = distances[0]
+    if ids and isinstance(ids, list) and len(ids) > 0 and isinstance(ids[0], list):
+        ids = ids[0]
+
+    # Ensure we have proper lists
+    documents = documents if isinstance(documents, list) else []
+    metadatas = metadatas if isinstance(metadatas, list) else []
+    distances = distances if isinstance(distances, list) else []
+    ids = ids if isinstance(ids, list) else []
 
     return QueryResult(
-        documents=documents or [],
-        metadatas=metadatas or [],
-        distances=distances or [],
-        ids=ids or []
+        documents=documents,
+        metadatas=metadatas,
+        distances=distances,
+        ids=ids
     )
