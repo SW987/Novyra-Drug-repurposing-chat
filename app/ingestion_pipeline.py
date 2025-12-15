@@ -340,6 +340,9 @@ class PDFIngestionPipeline:
         # Create output directory
         full_query = f"{drug_name} repurposing"
         output_folder = Path(self.settings.docs_dir) / full_query
+
+        # Ensure base docs directory exists
+        output_folder.parent.mkdir(parents=True, exist_ok=True)
         output_folder.mkdir(exist_ok=True)
 
         print(f"📁 Saving PDFs to: {output_folder}")
