@@ -96,7 +96,7 @@ def get_pdf_link_from_pmcid(pmcid):
 # ----------------------------
 # DOWNLOAD FILE STREAM (HTTP or FTP)
 # ----------------------------
-def download_stream(url, destination, timeout=20):
+def download_stream(url, destination, timeout=25):
     """Reliable binary download for HTTP and FTP."""
     if url.startswith("ftp://"):
         with urllib.request.urlopen(url, timeout=timeout) as response, open(destination, "wb") as out:
