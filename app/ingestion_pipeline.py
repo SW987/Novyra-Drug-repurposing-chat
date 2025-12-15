@@ -324,30 +324,31 @@ class PDFIngestionPipeline:
             "results": results
         }
 
-    def download_and_ingest_drug_papers(self, drug_name: str, max_papers: int = 5) -> Dict[str, Any]:
+    def download_and_ingest_drug_papers(self, drug_name: str, max_papers: int = 3, max_search_results: int = 50) -> Dict[str, Any]:
         """
         Search PubMed for drug repurposing papers, download PDFs, and ingest them.
-
+ 
         Args:
             drug_name: Drug name to search for
-            max_papers: Maximum number of papers to download
-
+            max_papers: Maximum number of papers to successfully download
+            max_search_results: Maximum number of search results to look through
+ 
         Returns:
             Complete processing results
         """
         print(f"🔍 Searching PubMed for '{drug_name} repurposing'...")
-
+ 
         # Create output directory
         full_query = f"{drug_name} repurposing"
         output_folder = Path(self.settings.docs_dir) / full_query
         output_folder.mkdir(exist_ok=True)
-
+ 
         print(f"📁 Saving PDFs to: {output_folder}")
-
+ 
         # Search PMC for articles
-        pmc_ids, article_links = search_pmc_articles(full_query, max_results=max_papers * 2)  # Get more to account for failures
+        pmc_ids, article_links = search_pmc_articles(full_query, max_results=max_search_results)
         print(f"📋 Found {len(pmc_ids)} PMC articles for '{drug_name}'")
-
+ 
         if not pmc_ids:
             return {
                 "success": False,
@@ -357,28 +358,33 @@ class PDFIngestionPipeline:
                 "ingested": 0,
                 "error": "No papers found in PubMed Central"
             }
-
+ 
         downloaded_count = 0
         ingested_count = 0
         results = []
-
-        # Download and process each paper
-        for pmcid in pmc_ids[:max_papers]:  # Limit to max_papers
-            print(f"\n📥 Processing PMC{pmcid}")
-
+ 
+        # Download and process papers until we reach max_papers successful downloads
+        for pmcid in pmc_ids:
+            # Stop if we've downloaded enough papers
+            if downloaded_count >= max_papers:
+                print(f"\n✅ Reached target of {max_papers} papers. Stopping search.")
+                break
+ 
+            print(f"\n📥 Processing PMC{pmcid} (Downloaded: {downloaded_count}/{max_papers})")
+ 
             # Get PDF link
             pdf_url = get_pdf_link_from_pmcid(pmcid)
             if not pdf_url:
                 print(f"[SKIP] No OA PDF available for PMC{pmcid}")
                 results.append({"pmcid": pmcid, "status": "no_pdf_available"})
                 continue
-
+ 
             # Download PDF
             save_path = output_folder / f"{drug_name}_repurposing_PMC{pmcid}.pdf"
             if download_pdf(pdf_url, str(save_path)):
                 downloaded_count += 1
                 print(f"[SUCCESS] Downloaded: {save_path}")
-
+ 
                 # Ingest the downloaded PDF
                 ingest_result = self.validate_and_ingest_pdf(str(save_path), drug_name)
                 results.append({
@@ -387,7 +393,7 @@ class PDFIngestionPipeline:
                     "ingested": ingest_result["success"],
                     "ingest_result": ingest_result
                 })
-
+ 
                 if ingest_result["success"]:
                     ingested_count += 1
                     print(f"[SUCCESS] Ingested into vector DB: {ingest_result['chunks_created']} chunks")
@@ -396,11 +402,12 @@ class PDFIngestionPipeline:
             else:
                 print(f"[FAILED] Could not download PDF for PMC{pmcid}")
                 results.append({"pmcid": pmcid, "status": "download_failed"})
-
+ 
         return {
             "success": downloaded_count > 0,
             "drug": drug_name,
             "papers_found": len(pmc_ids),
+            "links_searched": len(results),
             "downloaded": downloaded_count,
             "ingested": ingested_count,
             "output_folder": str(output_folder),

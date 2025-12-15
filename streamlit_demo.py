@@ -9,6 +9,9 @@ import time
 import os
 from typing import List, Dict, Any, Optional
 from pathlib import Path
+import requests
+
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
 
 # Import our backend modules
 try:
@@ -29,6 +32,31 @@ AVAILABLE_DRUGS = {
     "apomorphine": "Apomorphine - Parkinson's & Addiction Treatment",
     "insulin": "Insulin - Metabolic & Research Applications"
 }
+
+def discover_downloaded_drugs(settings: Settings) -> dict:
+    """Return mapping of dynamically downloaded drugs found under docs_dir."""
+    discovered = {}
+    docs_dir = Path(settings.docs_dir)
+    suffix = " repurposing"
+    if not docs_dir.exists():
+        return discovered
+
+    for subdir in docs_dir.iterdir():
+        if not subdir.is_dir():
+            continue
+        # Require at least one PDF to consider it "available"
+        if not any(subdir.glob("*.pdf")):
+            continue
+
+        name = subdir.name
+        drug_id = name.lower()
+        if drug_id.endswith(suffix):
+            drug_id = drug_id[: -len(suffix)].strip()
+
+        if drug_id not in AVAILABLE_DRUGS:
+            discovered[drug_id] = f"{drug_id.title()} - Downloaded (custom)"
+
+    return discovered
 
 def init_session_state():
     """Initialize session state for chat history"""
@@ -199,6 +227,9 @@ def main():
 
     # Initialize session state
     init_session_state()
+    # Compute available drugs (built-ins + any previously downloaded)
+    dynamic_drugs = discover_downloaded_drugs(settings)
+    available_drugs = {**AVAILABLE_DRUGS, **dynamic_drugs}
 
     # Sidebar for drug selection and info
     with st.sidebar:
@@ -218,9 +249,11 @@ def main():
             # Drug selector for pre-loaded drugs
             selected_drug_display = st.selectbox(
                 "Choose a drug to discuss:",
-                options=list(AVAILABLE_DRUGS.keys()),
-                format_func=lambda x: AVAILABLE_DRUGS[x],
-                index=list(AVAILABLE_DRUGS.keys()).index(st.session_state.current_drug),
+                options=list(available_drugs.keys()),
+                format_func=lambda x: available_drugs[x],
+                index=list(available_drugs.keys()).index(st.session_state.current_drug)
+                if st.session_state.current_drug in available_drugs
+                else 0,
                 key="drug_selector"
             )
 
@@ -266,7 +299,7 @@ def main():
                     st.error("❌ Please enter a drug name first")
 
             # Always show current drug status if it's a custom drug
-            if st.session_state.current_drug and st.session_state.current_drug not in AVAILABLE_DRUGS:
+            if st.session_state.current_drug and st.session_state.current_drug not in available_drugs:
                 drug_title = st.session_state.current_drug.title()
                 if st.session_state.current_drug in st.session_state.processed_drugs:
                     st.success(f"📊 **Active Drug Analysis**: {drug_title} ✅ (Data Ready)")
@@ -275,18 +308,20 @@ def main():
                     st.info(f"📊 **Active Drug Analysis**: {drug_title}")
                     st.warning("⚠️ Click '🚀 Analyze Drug' to automatically download papers and enable chat.")
 
-            if st.session_state.current_drug and st.session_state.current_drug not in AVAILABLE_DRUGS:
+            if st.session_state.current_drug and st.session_state.current_drug not in available_drugs:
                 st.info(f"📊 Currently analyzing: **{st.session_state.current_drug.title()}**")
                 st.warning("⚠️ This drug hasn't been processed yet. In full implementation, this would trigger automatic PDF download and RAG ingestion.")
 
         st.markdown("---")
 
         # Current drug info
-        if st.session_state.current_drug in AVAILABLE_DRUGS:
-            drug_name = AVAILABLE_DRUGS[st.session_state.current_drug].split(' - ')[0]
-            drug_focus = AVAILABLE_DRUGS[st.session_state.current_drug].split(' - ')[1]
+        if st.session_state.current_drug in available_drugs:
+            label = available_drugs[st.session_state.current_drug]
+            parts = label.split(' - ', 1)
+            drug_name = parts[0]
+            drug_focus = parts[1] if len(parts) > 1 else "Downloaded (custom)"
         else:
-            # Custom drug
+            # Custom drug without data yet
             drug_name = st.session_state.current_drug.title()
             drug_focus = "Custom Drug Analysis (Processing Required)"
 
@@ -313,7 +348,7 @@ def main():
         st.subheader("📚 Available Options")
 
         with st.expander("✅ Pre-loaded Drugs (Ready to chat)", expanded=True):
-            for drug_id, description in AVAILABLE_DRUGS.items():
+            for drug_id, description in available_drugs.items():
                 st.write(f"• **{description.split(' - ')[0]}**: {description.split(' - ')[1]}")
 
         with st.expander("🔧 Custom Drugs (Dynamic Download)", expanded=False):
@@ -323,8 +358,8 @@ def main():
             st.info("💡 Enter any drug in the custom mode above to automatically download and process research papers!")
 
     # Main chat interface
-    if st.session_state.current_drug in AVAILABLE_DRUGS:
-        drug_display = AVAILABLE_DRUGS[st.session_state.current_drug].split(' - ')[0]
+    if st.session_state.current_drug in available_drugs:
+        drug_display = available_drugs[st.session_state.current_drug].split(' - ')[0]
     else:
         drug_display = st.session_state.current_drug.title()
 
@@ -335,8 +370,8 @@ def main():
         display_chat_message(message, message.get("is_user", False))
 
     # Get current drug display name and data availability
-    if st.session_state.current_drug in AVAILABLE_DRUGS:
-        drug_display = AVAILABLE_DRUGS[st.session_state.current_drug].split(' - ')[0]
+    if st.session_state.current_drug in available_drugs:
+        drug_display = available_drugs[st.session_state.current_drug].split(' - ')[0]
         has_data = True
     elif st.session_state.current_drug in st.session_state.processed_drugs:
         drug_display = st.session_state.current_drug.title()

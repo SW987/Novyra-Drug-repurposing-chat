@@ -2,6 +2,7 @@ import os
 import google.generativeai as genai
 from pathlib import Path
 from typing import List, Dict, Any
+import time  # Simple timing for chunk/embedding steps
 from chromadb import Collection
 import chromadb.utils.embedding_functions as embedding_functions # New import for embedding function
 
@@ -55,12 +56,15 @@ def process_pdf_file(
     Returns:
         Dictionary with processing results
     """
+    t0 = time.perf_counter()
     try:
         # Parse filename to get document info
         doc_info = parse_filename(pdf_path.name, drug_folder)
 
         # Extract text from PDF
+        t_extract_start = time.perf_counter()
         content = extract_text_from_pdf(str(pdf_path))
+        t_extract = time.perf_counter() - t_extract_start
 
         if not content.strip():
             return {
@@ -72,7 +76,9 @@ def process_pdf_file(
             }
 
         # Chunk the content
+        t_chunk_start = time.perf_counter()
         chunks = chunk_text(content)
+        t_chunk = time.perf_counter() - t_chunk_start
 
         if not chunks:
             return {
@@ -84,7 +90,9 @@ def process_pdf_file(
             }
 
         # Generate embeddings for chunks
+        t_embed_start = time.perf_counter()
         embeddings = embed_texts(chunks, settings, settings.gemini_embedding_model) # Pass settings instead of client
+        t_embed = time.perf_counter() - t_embed_start
 
         # Prepare metadata for each chunk
         metadatas = []
@@ -106,7 +114,15 @@ def process_pdf_file(
             ids.append(chunk_id)
 
         # Store in vector database
+        t_upsert_start = time.perf_counter()
         upsert_chunks(collection, chunks, metadatas, ids)
+        t_upsert = time.perf_counter() - t_upsert_start
+
+        total_time = time.perf_counter() - t0
+        print(
+            f"[TIMING] {pdf_path.name} | extract={t_extract:.2f}s chunk={t_chunk:.2f}s "
+            f"embed={t_embed:.2f}s upsert={t_upsert:.2f}s total={total_time:.2f}s"
+        )
 
         return {
             "drug_id": doc_info.drug_id,

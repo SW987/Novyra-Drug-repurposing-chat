@@ -91,10 +91,10 @@ def retrieve_relevant_chunks(
     doc_counts = {}
 
     for i, (doc_id, distance, document, metadata) in enumerate(zip(
-        initial_results['ids'],
-        initial_results['distances'],
-        initial_results['documents'],
-        initial_results['metadatas']
+        initial_results.ids,
+        initial_results.distances,
+        initial_results.documents,
+        initial_results.metadatas
     )):
         current_doc = metadata.get('doc_id', 'unknown')
         if doc_counts.get(current_doc, 0) < 5:  # Limit to 5 chunks per document
@@ -104,15 +104,13 @@ def retrieve_relevant_chunks(
         if len(selected_chunks) >= top_k:
             break
 
-    # Reconstruct results with diverse chunks
-    diverse_results = {
-        'ids': [chunk[0] for chunk in selected_chunks],
-        'distances': [chunk[1] for chunk in selected_chunks],
-        'documents': [chunk[2] for chunk in selected_chunks],
-        'metadatas': [chunk[3] for chunk in selected_chunks]
-    }
-
-    return diverse_results
+    # Reconstruct results with diverse chunks as a QueryResult
+    return QueryResult(
+        documents=[chunk[2] for chunk in selected_chunks],
+        metadatas=[chunk[3] for chunk in selected_chunks],
+        distances=[chunk[1] for chunk in selected_chunks],
+        ids=[chunk[0] for chunk in selected_chunks]
+    )
 
 
 def build_enhanced_query(current_message: str, conversation_history: Optional[List[Union[Message, Dict[str, str]]]] = None) -> str:
