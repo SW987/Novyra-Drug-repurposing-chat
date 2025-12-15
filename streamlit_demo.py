@@ -16,8 +16,33 @@ try:
     from app.vector_store import init_vector_store
     from app.rag import chat_with_documents
     from app.schemas import Message, Source
+    from app.ingestion_pipeline import PDFIngestionPipeline
     settings = get_settings()
     collection = init_vector_store(settings)
+
+    # Check if we need to initialize pre-loaded drugs
+    try:
+        # Try to query for existing aspirin data
+        test_results = collection.get(where={"drug_id": "aspirin"}, limit=1)
+        if not test_results.get('documents'):
+            print("Initializing pre-loaded drugs...")
+
+            # Initialize pre-loaded drugs
+            pipeline = PDFIngestionPipeline(settings)
+            preloaded_drugs = ["aspirin", "apomorphine", "insulin"]
+
+            for drug in preloaded_drugs:
+                try:
+                    print(f"Loading {drug} data...")
+                    result = pipeline.download_and_ingest_drug_papers(drug, max_papers=3)
+                    print(f"Loaded {result.get('downloaded', 0)} papers for {drug}")
+                except Exception as e:
+                    print(f"Failed to load {drug}: {e}")
+
+            print("Pre-loaded drugs initialization complete!")
+    except Exception as e:
+        print(f"Error checking/initializing pre-loaded drugs: {e}")
+
 except ImportError as e:
     st.error(f"❌ Failed to import backend modules: {e}")
     st.error("Make sure all backend files are in the app/ directory")
