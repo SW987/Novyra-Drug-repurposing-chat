@@ -348,7 +348,7 @@ class PDFIngestionPipeline:
         print(f"📁 Saving PDFs to: {output_folder}")
 
         # Search PMC for articles
-        pmc_ids, article_links = search_pmc_articles(full_query, max_results=max_papers * 2)  # Search broadly, download selectively
+        pmc_ids, article_links = search_pmc_articles(full_query, max_results=20)  # Search 20 results, download selectively
         print(f"📋 Found {len(pmc_ids)} PMC articles for '{drug_name}'")
 
         if not pmc_ids:
