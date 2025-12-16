@@ -64,7 +64,7 @@ def check_database_health(db_path: Path) -> bool:
         db_path: Path to ChromaDB database directory
         
     Returns:
-        True if database appears healthy, False if corrupted
+        True if database appears healthy or empty, False if corrupted
     """
     if not db_path.exists():
         return True  # No database yet, that's fine
@@ -73,6 +73,10 @@ def check_database_health(db_path: Path) -> bool:
         # Check if it's a directory
         if not db_path.is_dir():
             return False
+        
+        # Check if directory is empty (fresh database after reset is fine)
+        if not any(db_path.iterdir()):
+            return True  # Empty directory is healthy (fresh start)
         
         # Try to create a test client to see if database is accessible
         test_client = chromadb.PersistentClient(path=str(db_path))
@@ -84,11 +88,14 @@ def check_database_health(db_path: Path) -> bool:
         # Check for corruption indicators
         if any(indicator in error_str for indicator in [
             "no such table", "operationalerror", "could not connect",
-            "database disk image", "corrupt", "malformed"
+            "database disk image", "corrupt", "malformed", "tenants"
         ]):
             return False
-        # Other errors might be okay (e.g., no collections yet)
-        return True
+        # Other errors might be okay (e.g., no collections yet, session issues)
+        # If it's a session error, the database might still be okay
+        if "session" in error_str:
+            return True  # Session errors are often recoverable
+        return True  # Default to healthy for unknown errors
 
 
 def reset_chromadb(settings: Settings) -> bool:

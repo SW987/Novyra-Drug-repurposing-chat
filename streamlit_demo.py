@@ -29,10 +29,30 @@ try:
             # Reset the database
             if reset_chromadb(settings):
                 print("✅ Database reset successful, reinitializing...")
-                collection = init_vector_store(settings, reset_on_corruption=False)
+                # After reset, allow reset again in case of issues
+                try:
+                    collection = init_vector_store(settings, reset_on_corruption=True)
+                except Exception as retry_error:
+                    # If still failing after reset, try one more time with fresh start
+                    print(f"⚠️ Still having issues after reset: {retry_error}")
+                    if reset_chromadb(settings):
+                        collection = init_vector_store(settings, reset_on_corruption=False)
+                    else:
+                        raise RuntimeError("Failed to initialize database after multiple reset attempts")
             else:
-                print("❌ Failed to reset database")
-                raise
+                print("❌ Failed to reset database, trying to continue anyway...")
+                # Try to initialize anyway - might work if corruption was minor
+                try:
+                    collection = init_vector_store(settings, reset_on_corruption=False)
+                except:
+                    # Last resort: force reset and initialize
+                    import shutil
+                    from pathlib import Path
+                    db_path = Path(settings.chroma_db_dir)
+                    if db_path.exists():
+                        shutil.rmtree(db_path)
+                    db_path.mkdir(parents=True, exist_ok=True)
+                    collection = init_vector_store(settings, reset_on_corruption=False)
         else:
             raise
 except ImportError as e:
