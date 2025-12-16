@@ -255,6 +255,7 @@ def display_chat_message(message: Dict[str, Any], is_user: bool = False):
 
 def main():
     """Main Streamlit application"""
+    st.write("DEBUG: Streamlit app main() function entered") # Very early debug print
     st.set_page_config(
         page_title="Drug Repurposing Chat",
         page_icon="💊",
