@@ -188,31 +188,26 @@ def process_custom_drug(drug_name):
 def make_chat_request(drug_id: str, message: str, session_id: str, conversation_history: List[Dict[str, str]] = None) -> Dict[str, Any]:
     """Make a chat request using the integrated RAG system"""
     try:
-        # Convert conversation history to Message objects
-        message_history = []
-        if conversation_history:
-            for msg in conversation_history:
-                message_history.append(Message(
-                    role=msg["role"],
-                    content=msg["content"]
-                ))
-
         # Get the vector collection
         vector_collection = get_collection()
 
         # Call the RAG system directly
+        # conversation_history is already in dict format, which chat_with_documents accepts
         result = chat_with_documents(
             session_id=session_id,
             drug_id=drug_id,
             message=message,
             collection=vector_collection,
             settings=settings,
-            conversation_history=message_history if message_history else None
+            conversation_history=conversation_history
         )
 
         return result
 
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"ERROR in make_chat_request: {error_details}")
         return {"error": f"RAG system error: {str(e)}"}
 
 def display_source(source, index: int) -> None:
@@ -382,7 +377,6 @@ def main():
 
     # Chat input
     if prompt := st.chat_input("Ask about drug repurposing research..."):
-        st.write("DEBUG: Chat input triggered") # Debug print
         if not st.session_state.current_drug:
             st.error("❌ Please select a drug first!")
             st.stop()
@@ -399,18 +393,33 @@ def main():
                     result = make_chat_request(
                         drug_id=st.session_state.current_drug,
                         message=prompt,
-                        session_id=st.session_state.session_id
+                        session_id=st.session_state.session_id,
+                        conversation_history=st.session_state.messages
                     )
 
-                    response_text = result["answer"]
-                    st.markdown(response_text)
+                    # Handle both success and error responses
+                    if "error" in result:
+                        error_msg = f"❌ {result['error']}"
+                        st.error(error_msg)
+                        st.session_state.messages.append({"role": "assistant", "content": error_msg})
+                    elif "answer" in result:
+                        response_text = result["answer"]
+                        st.markdown(response_text)
 
-                    # Add assistant message to history
-                    st.session_state.messages.append({
-                        "role": "assistant",
-                        "content": response_text
-                    })
+                        # Add assistant message to history
+                        st.session_state.messages.append({
+                            "role": "assistant",
+                            "content": response_text
+                        })
+                    else:
+                        error_msg = f"❌ Unexpected response format: {list(result.keys())}"
+                        st.error(error_msg)
+                        st.session_state.messages.append({"role": "assistant", "content": error_msg})
 
+                except KeyError as e:
+                    error_msg = f"❌ Error: Missing key in response - {str(e)}"
+                    st.error(error_msg)
+                    st.session_state.messages.append({"role": "assistant", "content": error_msg})
                 except Exception as e:
                     error_msg = f"❌ Error: {str(e)}"
                     st.error(error_msg)

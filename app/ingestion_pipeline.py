@@ -364,10 +364,19 @@ class PDFIngestionPipeline:
         downloaded_count = 0
         ingested_count = 0
         results = []
+        papers_attempted = 0
+        max_attempts = min(len(pmc_ids), max_papers * 5)  # Try up to 5x max_papers to find OA PDFs
 
-        # Download and process each paper
-        for pmcid in pmc_ids[:max_papers]:  # Limit to max_papers
-            print(f"\n📥 Processing PMC{pmcid}")
+        # Download and process papers - continue until we get max_papers or run out
+        for pmcid in pmc_ids:
+            if downloaded_count >= max_papers:
+                break
+            if papers_attempted >= max_attempts:
+                print(f"\n⚠️ Tried {papers_attempted} papers but only found {downloaded_count} with OA PDFs")
+                break
+                
+            papers_attempted += 1
+            print(f"\n📥 Processing PMC{pmcid} ({papers_attempted}/{max_attempts})")
 
             # Get PDF link
             pdf_url = get_pdf_link_from_pmcid(pmcid)

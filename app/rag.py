@@ -355,6 +355,15 @@ def chat_with_documents(
     """
     # Check for conversational/introductory messages
     message_lower = message.lower().strip()
+    print(f"DEBUG: Processing message '{message}' (lower: '{message_lower}') for drug '{drug_id}'")
+    
+    # Ensure drug_id is set
+    if not drug_id or drug_id.strip() == "":
+        return {
+            "answer": "❌ Please select a drug first before asking questions. Use the sidebar to choose a pre-loaded drug or enter a custom drug name.",
+            "sources": [],
+            "session_id": session_id
+        }
 
     # Handle common conversational messages
     conversational_responses = {
@@ -366,30 +375,48 @@ def chat_with_documents(
         "how does this work": "I work by:\n\n1. **Searching** PubMed for research papers about your chosen drug\n2. **Downloading** open-access scientific papers (up to 10 per drug)\n3. **Analyzing** the content using AI to find repurposing opportunities\n4. **Answering** your questions with evidence from the research\n\nThe system learns about new drugs dynamically - no pre-loaded database needed!"
     }
 
-    # Check for exact matches or close matches
-    for key, response in conversational_responses.items():
-        if key in message_lower or message_lower in [key, f"{key}?", f"{key}!", f"{key}."]:
-            return {
-                "answer": response,
-                "sources": [],
-                "session_id": session_id
-            }
-
-    # Also check for very short messages that are likely conversational
-    if len(message_lower.split()) <= 3 and message_lower not in ["cancer", "research", "papers", "drugs", "drug"]:
+    # Check for exact matches only (not substring matches)
+    # Only catch pure greetings, not questions that happen to contain these words
+    exact_matches = [key for key in conversational_responses.keys() 
+                     if message_lower == key or message_lower in [f"{key}?", f"{key}!", f"{key}."]]
+    
+    if exact_matches:
+        # Only return conversational response for exact matches
+        matched_key = exact_matches[0]
         return {
-            "answer": "I'm a drug repurposing research assistant. I help explore scientific research about using existing drugs for new medical purposes. Try asking me about a specific drug like 'aspirin' or 'metformin', or ask 'help' to learn more about what I can do!",
+            "answer": conversational_responses[matched_key],
             "sources": [],
             "session_id": session_id
         }
 
     # Retrieve relevant chunks (increased top_k for better coverage)
+    # All questions (including short ones like "what is happening?") will search documents
     results = retrieve_relevant_chunks(message, drug_id, collection, settings, doc_id, top_k)
 
     # Debug: Log what we found
-    print(f"DEBUG: Query '{message}' for drug '{drug_id}' found {len(results.get('documents', []))} documents")
+    num_docs = len(results.get('documents', []))
+    print(f"DEBUG: Query '{message}' for drug '{drug_id}' found {num_docs} documents")
 
-    if not results["documents"]:
+    if not results["documents"] or num_docs == 0:
+        # Check if collection has any data at all
+        try:
+            all_docs = collection.get(limit=1)
+            has_any_data = len(all_docs.get('documents', [])) > 0
+            print(f"DEBUG: Collection has any data: {has_any_data}")
+            
+            if not has_any_data:
+                return {
+                    "answer": f"⚠️ **No research papers found for {drug_id}.**\n\n" +
+                             "The drug database appears to be empty. Please:\n\n" +
+                             "1. **For pre-loaded drugs:** Wait for auto-initialization to complete (2-3 minutes)\n" +
+                             "2. **For custom drugs:** Click '🚀 Analyze Drug' to download research papers\n\n" +
+                             "Once papers are loaded, I can answer questions about the drug's repurposing opportunities!",
+                    "sources": [],
+                    "session_id": session_id
+                }
+        except Exception as e:
+            print(f"DEBUG: Error checking collection: {e}")
+
         # Try to provide more helpful guidance
         suggestions = [
             f"Try asking about '{drug_id}' and 'cancer', 'clinical trials', or 'neurological applications'",
