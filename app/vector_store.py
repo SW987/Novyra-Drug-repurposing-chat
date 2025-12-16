@@ -167,8 +167,14 @@ def init_vector_store(settings: Settings, reset_on_corruption: bool = True) -> C
             test_file = db_path / ".write_test"
             try:
                 test_file.write_text("test")
-                test_file.unlink()
-            except Exception as perm_error:
+                # If write succeeded, directory is writable
+                # Try to delete, but don't fail if deletion fails (file might already be gone)
+                try:
+                    test_file.unlink()
+                except (FileNotFoundError, OSError):
+                    pass  # File already deleted or doesn't exist - that's fine
+            except (PermissionError, OSError) as perm_error:
+                # Only raise error if write failed (permission issue)
                 raise RuntimeError(f"Database directory is not writable: {perm_error}. Path: {db_path}")
             
             # Check database health BEFORE creating client
