@@ -254,15 +254,24 @@ def process_custom_drug(drug_name):
             st.session_state.processed_drugs.add(drug_name)
             save_persistent_drugs(st.session_state.processed_drugs)
 
-            # Add to AVAILABLE_DRUGS so it appears as pre-loaded option for future sessions
+            # Add to AVAILABLE_DRUGS so it appears as pre-loaded option
             AVAILABLE_DRUGS[drug_name] = f"{drug_name.title()} - Custom Analysis"
             
             # Also add to processed_drugs in session state to ensure it's tracked
             st.session_state.processed_drugs.add(drug_name)
+            
+            # Rediscover all drugs to ensure dropdown is up to date
+            try:
+                existing_drugs = discover_existing_drugs()
+                for drug in existing_drugs:
+                    if drug not in AVAILABLE_DRUGS:
+                        AVAILABLE_DRUGS[drug] = f"{drug.title()} - Custom Analysis"
+            except Exception as e:
+                print(f"Note: Could not rediscover drugs: {e}")
 
             # Show that chat is now available
             st.success("💬 You can now chat about this drug using the research papers!")
-            st.info(f"💡 **Tip**: Switch to 'Pre-loaded Drugs' mode to see '{drug_name.title()}' in the dropdown for easy access!")
+            st.success(f"✅ **'{drug_name.title()}' is now available in the 'Pre-loaded Drugs' dropdown!** Switch modes to see it.")
 
             return True
         else:
@@ -499,6 +508,20 @@ def main():
                     
                     for drug in preloaded_drugs:
                         try:
+                            # Check if drug already has data in database
+                            try:
+                                drug_check = collection.get(where={"drug_id": drug}, limit=1)
+                                if drug_check.get('documents') and len(drug_check.get('documents', [])) > 0:
+                                    print(f"✅ {drug}: Already has data in database, skipping...")
+                                    with init_container:
+                                        st.success(f"✅ **{drug.title()}**: Already loaded (skipping)")
+                                    st.session_state.processed_drugs.add(drug)
+                                    success_count += 1
+                                    continue  # Skip this drug, it's already processed
+                            except Exception:
+                                # If check fails, continue with download
+                                pass
+                            
                             print(f"📥 Processing {drug}...")
                             with init_container:
                                 st.info(f"📥 Loading research for {drug}...")
@@ -595,6 +618,15 @@ def main():
         st.markdown("---")
 
         if mode == "Pre-loaded Drugs":
+            # Rebuild AVAILABLE_DRUGS from discovered drugs to ensure it's up to date
+            try:
+                discovered_drugs = discover_existing_drugs()
+                for drug in discovered_drugs:
+                    if drug not in AVAILABLE_DRUGS:
+                        AVAILABLE_DRUGS[drug] = f"{drug.title()} - Custom Analysis"
+            except Exception as e:
+                print(f"Note: Could not discover drugs for dropdown: {e}")
+            
             # Drug selector for pre-loaded drugs
             # Safely determine the index for the current drug
             available_drugs_list = list(AVAILABLE_DRUGS.keys())

@@ -15,29 +15,39 @@ class DocumentInfo(NamedTuple):
 def parse_filename(filename: str, drug_folder: str) -> DocumentInfo:
     """
     Parse filename with format: {drug_id}_repurposing_{source_id}.pdf
+    Uses drug_folder to get drug_id reliably instead of parsing from filename.
 
     Examples:
-    - apomorphine_repurposing_PMC5995787.pdf
-    - aspirin_repurposing_PMC11242460.pdf
-    - insulin_repurposing_PMC11919260.pdf
-
+    - filename: apomorphine_repurposing_PMC5995787.pdf
+    - drug_folder: "apomorphine repurposing"
     -> drug_id="apomorphine", doc_id="PMC5995787", doc_title="Apomorphine Repurposing PMC5995787"
     """
+    # Extract drug_id from drug_folder (more reliable than parsing filename)
+    # drug_folder format: "{drug_name} repurposing"
+    drug_id = drug_folder.replace(" repurposing", "").strip().lower()
+    
     # Remove file extension
     name = filename.rsplit('.', 1)[0]
 
-    # Split by underscores
-    parts = name.split('_')
-    if len(parts) < 3:
-        raise ValueError(f"Invalid filename format: {filename}. Expected: drug_repurposing_source_id.pdf")
-
-    drug_id = parts[0]
-    # Remove 'repurposing' from the middle
-    if 'repurposing' in parts:
-        repurposing_idx = parts.index('repurposing')
-        source_id = '_'.join(parts[repurposing_idx + 1:])
+    # Extract source_id (PMC ID) from filename
+    # Format: {drug_id}_repurposing_{source_id} or just look for PMC pattern
+    if 'PMC' in name:
+        # Find PMC ID in filename
+        pmc_match = re.search(r'PMC\d+', name)
+        if pmc_match:
+            source_id = pmc_match.group(0)
+        else:
+            # Fallback: extract everything after last underscore
+            parts = name.split('_')
+            source_id = parts[-1] if parts else name
     else:
-        source_id = '_'.join(parts[1:])
+        # Fallback: extract everything after last underscore or "repurposing"
+        parts = name.split('_')
+        if 'repurposing' in parts:
+            repurposing_idx = parts.index('repurposing')
+            source_id = '_'.join(parts[repurposing_idx + 1:])
+        else:
+            source_id = parts[-1] if len(parts) > 1 else name
 
     # Create human-readable title
     doc_title = f"{drug_id.title()} Repurposing {source_id}"

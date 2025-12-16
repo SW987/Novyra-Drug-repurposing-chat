@@ -252,6 +252,7 @@ def upsert_chunks(
 ) -> None:
     """
     Add or update chunks in the vector store.
+    Handles duplicates by checking existing IDs and updating them.
     Handles corruption errors gracefully.
 
     Args:
@@ -264,14 +265,67 @@ def upsert_chunks(
         RuntimeError: If ChromaDB corruption is detected
         Exception: Other errors from ChromaDB
     """
+    if not ids or not texts:
+        return  # Nothing to add
+    
     try:
-        collection.add(
-            documents=texts,
-            metadatas=metadatas,
-            ids=ids
-        )
+        # Check which IDs already exist
+        try:
+            existing_results = collection.get(ids=ids)
+            existing_ids_list = existing_results.get('ids', [])
+            # Handle nested lists from ChromaDB
+            if existing_ids_list and isinstance(existing_ids_list[0], list):
+                existing_ids = set([id for sublist in existing_ids_list for id in sublist])
+            else:
+                existing_ids = set(existing_ids_list) if existing_ids_list else set()
+        except Exception:
+            # If we can't check, assume none exist and try to add
+            existing_ids = set()
+        
+        # Separate new and existing chunks
+        new_texts = []
+        new_metadatas = []
+        new_ids = []
+        update_texts = []
+        update_metadatas = []
+        update_ids = []
+        
+        for i, chunk_id in enumerate(ids):
+            if chunk_id in existing_ids:
+                # Update existing chunk
+                update_ids.append(chunk_id)
+                update_texts.append(texts[i])
+                update_metadatas.append(metadatas[i] if i < len(metadatas) else {})
+            else:
+                # Add new chunk
+                new_ids.append(chunk_id)
+                new_texts.append(texts[i])
+                new_metadatas.append(metadatas[i] if i < len(metadatas) else {})
+        
+        # Add new chunks
+        if new_ids:
+            collection.add(
+                documents=new_texts,
+                metadatas=new_metadatas,
+                ids=new_ids
+            )
+        
+        # Update existing chunks
+        if update_ids:
+            collection.update(
+                documents=update_texts,
+                metadatas=update_metadatas,
+                ids=update_ids
+            )
+            
     except Exception as e:
-        if is_chromadb_corrupted(e):
+        error_str = str(e).lower()
+        # Check if it's a duplicate ID error (not corruption)
+        if "existing" in error_str or "duplicate" in error_str or "already exists" in error_str:
+            # Chunks already exist - silently skip (they're already in the database)
+            print(f"ℹ️ Chunks already exist in database, skipping duplicate adds")
+            return  # Silently skip - no error, chunks are already there
+        elif is_chromadb_corrupted(e):
             error_msg = f"ChromaDB corruption detected during write: {e}"
             logger.error(error_msg)
             raise RuntimeError(error_msg) from e
