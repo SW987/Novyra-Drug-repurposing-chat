@@ -86,13 +86,26 @@ def discover_existing_drugs():
         results = collection.get(include=["metadatas"], limit=10000)  # Large limit to get all
         existing_drugs = set()
 
-        if results.get('metadatas'):
-            for metadata in results['metadatas']:
-                if metadata and 'drug_id' in metadata:
-                    existing_drugs.add(metadata['drug_id'])
+        metadatas = results.get('metadatas', [])
+        if metadatas:
+            # Handle nested lists (ChromaDB can return lists of lists)
+            if isinstance(metadatas, list) and len(metadatas) > 0:
+                # Check if first element is a list (nested structure)
+                if isinstance(metadatas[0], list):
+                    # Flatten nested structure
+                    for metadata_list in metadatas:
+                        for metadata in metadata_list:
+                            if metadata and isinstance(metadata, dict) and 'drug_id' in metadata:
+                                existing_drugs.add(metadata['drug_id'])
+                else:
+                    # Flat structure
+                    for metadata in metadatas:
+                        if metadata and isinstance(metadata, dict) and 'drug_id' in metadata:
+                            existing_drugs.add(metadata['drug_id'])
 
         return existing_drugs
-    except Exception:
+    except Exception as e:
+        print(f"Error discovering existing drugs: {e}")
         return set()
 
 def process_custom_drug(drug_name):
@@ -263,6 +276,76 @@ def main():
 
     # Initialize session state
     init_session_state()
+
+    # Auto-initialize pre-loaded drugs if database is empty (check persistent vector store)
+    # This only runs once when the database is truly empty, not on every session
+    try:
+        collection = get_collection()
+        print("🔍 Checking for existing drug data in persistent vector store...")
+        
+        # Check if ANY drug data exists (not just aspirin)
+        all_results = collection.get(limit=1)
+        documents = all_results.get('documents', [])
+        # Handle nested lists from ChromaDB
+        if documents and isinstance(documents, list) and len(documents) > 0:
+            if isinstance(documents[0], list):
+                # Nested structure - count all inner documents
+                total_docs = sum(len(doc_list) for doc_list in documents if isinstance(doc_list, list))
+            else:
+                # Flat structure
+                total_docs = len(documents)
+        else:
+            total_docs = 0
+        print(f"📊 Total documents in database: {total_docs}")
+
+        if total_docs == 0:
+            # Database is completely empty - initialize pre-loaded drugs
+            print("🚀 Database is empty - initializing pre-loaded drugs...")
+            st.info("🔄 Setting up drug database (this may take a few minutes)...")
+            st.info("💡 This only happens once. Data will persist for future sessions.")
+
+            try:
+                from app.ingestion_pipeline import PDFIngestionPipeline
+                pipeline = PDFIngestionPipeline(settings)
+                preloaded_drugs = ["aspirin", "apomorphine", "insulin"]
+
+                for drug in preloaded_drugs:
+                    try:
+                        print(f"📥 Processing {drug}...")
+                        st.info(f"📥 Loading research for {drug}...")
+                        result = pipeline.download_and_ingest_drug_papers(drug, max_papers=2)
+                        downloaded = result.get('downloaded', 0)
+                        print(f"✅ {drug}: {downloaded} papers loaded")
+                        if downloaded > 0:
+                            st.success(f"✅ {drug}: {downloaded} papers ready")
+                            st.session_state.processed_drugs.add(drug)
+                            # Data is automatically persisted in vector store
+                        else:
+                            st.warning(f"⚠️ {drug}: No papers downloaded")
+                    except Exception as e:
+                        error_msg = str(e)[:100]
+                        print(f"❌ {drug} failed: {error_msg}")
+                        st.warning(f"⚠️ {drug}: {error_msg}...")
+
+                st.success("🎉 Pre-loaded drugs initialized! Data will persist for future sessions.")
+            except Exception as e:
+                error_msg = str(e)[:100]
+                print(f"❌ Drug initialization failed: {error_msg}")
+                st.warning(f"⚠️ Auto-initialization failed: {error_msg}")
+                st.info("💡 You can still use custom drug search below to load specific drugs manually.")
+        else:
+            print(f"✅ Database already has {total_docs} documents - skipping auto-initialization")
+            # Discover and add any existing drugs to processed_drugs
+            existing_drugs = discover_existing_drugs()
+            st.session_state.processed_drugs.update(existing_drugs)
+            # Add existing drugs to AVAILABLE_DRUGS
+            for drug in existing_drugs:
+                if drug not in AVAILABLE_DRUGS:
+                    AVAILABLE_DRUGS[drug] = f"{drug.title()} - Custom Analysis"
+    except Exception as e:
+        error_msg = str(e)[:100]
+        print(f"❌ Initialization check error: {error_msg}")
+        # Don't show error to user - just log it, app can still work
 
     # Sidebar for drug selection and info
     with st.sidebar:
