@@ -153,19 +153,24 @@ def process_custom_drug(drug_name):
 
         # Check if drug is already processed in current session
         if drug_name in st.session_state.processed_drugs:
-            st.success(f"✅ '{drug_name.title()}' already processed and ready for chat!")
-            return True
+            # Don't blindly trust the flag; it can be set even if ingestion was interrupted.
+            try:
+                collection = get_collection()
+                if _is_drug_ingestion_complete(drug_name, collection):
+                    st.success(f"✅ '{drug_name.title()}' already processed and ready for chat!")
+                    return True
+                st.warning(f"⚠️ '{drug_name.title()}' analysis looks incomplete. Resuming ingestion...")
+            except Exception:
+                pass
 
         # Check if drug data already exists in vector store
         try:
             collection = get_collection()
-            # Query for existing drug data
-            existing_docs = collection.get(where={"drug_id": drug_name}, limit=1)
-            if existing_docs.get('documents') and len(existing_docs.get('documents', [])) > 0:
+            # Only skip work if ingestion is actually complete (avoid false positives from partial ingests)
+            if _is_drug_ingestion_complete(drug_name, collection):
                 st.success(f"✅ '{drug_name.title()}' data found in database - ready for chat!")
                 st.session_state.processed_drugs.add(drug_name)
                 save_persistent_drugs(st.session_state.processed_drugs)  # Save persistently
-                # Add to available drugs for future sessions
                 AVAILABLE_DRUGS[drug_name] = f"{drug_name.title()} - Custom Analysis"
                 return True
         except Exception as check_error:
@@ -304,11 +309,9 @@ def maybe_auto_resume_custom_drug(drug_name: str) -> None:
         if not pdf_found:
             return
 
-        # Check if the DB already has chunks for this drug
+        # Only treat as "ready" if ingestion is complete; otherwise resume.
         collection = get_collection()
-        existing = collection.get(where={"drug_id": drug}, limit=1)
-        has_chunks = existing.get("documents") and len(existing.get("documents", [])) > 0
-        if has_chunks:
+        if _is_drug_ingestion_complete(drug, collection):
             st.session_state.processed_drugs.add(drug)
             AVAILABLE_DRUGS[drug] = f"{drug.title()} - Custom Analysis"
             return
@@ -319,6 +322,65 @@ def maybe_auto_resume_custom_drug(drug_name: str) -> None:
         process_custom_drug(drug)
     except Exception as e:
         print(f"Auto-resume skipped: {e}")
+
+
+def _get_existing_pdf_doc_ids(drug: str) -> List[str]:
+    """Return list of doc_ids (e.g., PMC12345) inferred from existing PDFs on disk for this drug."""
+    drug = (drug or "").strip().lower()
+    if not drug:
+        return []
+    settings = get_settings()
+    candidate_base_dirs = [Path("/data") / "docs", Path(settings.docs_dir)]
+    import re
+    doc_ids: List[str] = []
+    for base_dir in candidate_base_dirs:
+        folder = base_dir / f"{drug} repurposing"
+        if not folder.exists():
+            continue
+        for pdf in folder.glob("*.pdf"):
+            m = re.search(r"(PMC\d+)", pdf.name, flags=re.IGNORECASE)
+            if m:
+                doc_ids.append(m.group(1).upper())
+    # De-dupe while preserving order
+    seen = set()
+    out = []
+    for d in doc_ids:
+        if d not in seen:
+            seen.add(d)
+            out.append(d)
+    return out
+
+
+def _is_drug_ingestion_complete(drug: str, collection) -> bool:
+    """
+    Consider ingestion complete if:
+    - there are no PDFs on disk (nothing to resume), AND
+    - there is at least some data in DB (or if user hasn't started)
+    OR
+    - there are PDFs on disk and each PDF's inferred doc_id exists in Chroma for this drug.
+    """
+    drug = (drug or "").strip().lower()
+    if not drug or collection is None:
+        return False
+
+    pdf_doc_ids = _get_existing_pdf_doc_ids(drug)
+    # If PDFs exist, require each corresponding doc_id to be present in DB
+    if pdf_doc_ids:
+        for doc_id in pdf_doc_ids:
+            try:
+                r = collection.get(where={"drug_id": drug, "doc_id": doc_id}, limit=1)
+                if not (r.get("documents") and len(r.get("documents", [])) > 0):
+                    return False
+            except Exception:
+                return False
+        return True
+
+    # No PDFs on disk: fall back to "any data exists for drug"
+    try:
+        r = collection.get(where={"drug_id": drug}, limit=1)
+        return bool(r.get("documents") and len(r.get("documents", [])) > 0)
+    except Exception:
+        return False
     finally:
         # Clean up progress indicators
         try:
