@@ -236,9 +236,13 @@ def process_custom_drug(drug_name):
 
             # Add to AVAILABLE_DRUGS so it appears as pre-loaded option for future sessions
             AVAILABLE_DRUGS[drug_name] = f"{drug_name.title()} - Custom Analysis"
+            
+            # Also add to processed_drugs in session state to ensure it's tracked
+            st.session_state.processed_drugs.add(drug_name)
 
             # Show that chat is now available
-            st.info("💬 You can now chat about this drug using the research papers!")
+            st.success("💬 You can now chat about this drug using the research papers!")
+            st.info(f"💡 **Tip**: Switch to 'Pre-loaded Drugs' mode to see '{drug_name.title()}' in the dropdown for easy access!")
 
             return True
         else:
@@ -374,6 +378,18 @@ def main():
 
     # Initialize session state
     init_session_state()
+    
+    # Discover existing drugs from vector store and add to AVAILABLE_DRUGS
+    # This ensures custom drugs appear in the dropdown
+    try:
+        existing_drugs = discover_existing_drugs()
+        for drug in existing_drugs:
+            if drug not in AVAILABLE_DRUGS:
+                AVAILABLE_DRUGS[drug] = f"{drug.title()} - Custom Analysis"
+        # Update processed_drugs with discovered drugs
+        st.session_state.processed_drugs.update(existing_drugs)
+    except Exception as e:
+        print(f"Note: Could not discover existing drugs: {e}")
 
     # Auto-initialize pre-loaded drugs if database is empty (check persistent vector store)
     # Use session state to prevent running on every Streamlit rerun

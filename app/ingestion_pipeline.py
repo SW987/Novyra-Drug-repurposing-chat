@@ -66,7 +66,7 @@ def search_pmc_articles(query, max_results=50):
         "sort": "relevance"
     }
 
-    response = requests.get(url, params=params, timeout=15)
+    response = requests.get(url, params=params, timeout=30)  # Increased timeout for custom drug search
     data = response.json()
 
     pmc_ids = data.get("esearchresult", {}).get("idlist", [])
@@ -81,7 +81,7 @@ def get_pdf_link_from_pmcid(pmcid):
     api_url = f"https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi?id=PMC{pmcid}"
 
     try:
-        r = requests.get(api_url, timeout=10)
+        r = requests.get(api_url, timeout=30)  # Increased timeout
         root = ET.fromstring(r.text)
 
         for link in root.findall(".//link"):
@@ -96,7 +96,7 @@ def get_pdf_link_from_pmcid(pmcid):
 # ----------------------------
 # DOWNLOAD FILE STREAM (HTTP or FTP)
 # ----------------------------
-def download_stream(url, destination, timeout=20):
+def download_stream(url, destination, timeout=60):  # Increased timeout for large PDFs
     """Reliable binary download for HTTP and FTP."""
     if url.startswith("ftp://"):
         with urllib.request.urlopen(url, timeout=timeout) as response, open(destination, "wb") as out:
@@ -151,7 +151,7 @@ def download_pdf(pdf_url, save_path, retries=2):
         try:
             print(f"[INFO] Attempt {attempt}: {pdf_url}")
 
-            download_stream(pdf_url, temp_file, timeout=10)  # Shorter timeout
+            download_stream(pdf_url, temp_file, timeout=60)  # Increased timeout for custom drug search
             time.sleep(0.2)  # Shorter delay
 
             with open(temp_file, "rb") as f:
