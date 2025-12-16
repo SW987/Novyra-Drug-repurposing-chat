@@ -426,6 +426,9 @@ def main():
                     pipeline = PDFIngestionPipeline(settings)
                     preloaded_drugs = ["aspirin", "apomorphine", "insulin"]
 
+                    success_count = 0
+                    failed_drugs = []
+                    
                     for drug in preloaded_drugs:
                         try:
                             print(f"📥 Processing {drug}...")
@@ -434,33 +437,54 @@ def main():
                             result = pipeline.download_and_ingest_drug_papers(drug, max_papers=2)
                             downloaded = result.get('downloaded', 0)
                             ingested = result.get('ingested', 0)
-                            print(f"✅ {drug}: {downloaded} papers downloaded, {ingested} ingested")
+                            papers_found = result.get('papers_found', 0)
+                            print(f"📊 {drug}: Found {papers_found} papers, downloaded {downloaded}, ingested {ingested} chunks")
                             
                             if downloaded > 0 and ingested > 0:
                                 with init_container:
-                                    st.success(f"✅ {drug}: {downloaded} papers downloaded, {ingested} chunks saved")
+                                    st.success(f"✅ **{drug.title()}**: {downloaded} papers downloaded, {ingested} chunks saved")
                                 st.session_state.processed_drugs.add(drug)
+                                success_count += 1
                                 # Data is automatically persisted in vector store
                             elif downloaded > 0 and ingested == 0:
                                 # Papers downloaded but failed to save (likely ChromaDB issue)
                                 error_detail = result.get('error', 'Unknown error')
                                 print(f"⚠️ {drug}: Papers downloaded but failed to save to database")
                                 with init_container:
-                                    st.warning(f"⚠️ {drug}: Downloaded {downloaded} papers but failed to save. Database may be corrupted.")
+                                    st.warning(f"⚠️ **{drug.title()}**: Downloaded {downloaded} papers but failed to save. Database may be corrupted.")
                                     st.error(f"💡 **Solution**: The ChromaDB database may need to be reset. Contact support or check logs.")
-                            else:
+                                failed_drugs.append(drug)
+                            elif papers_found > 0 and downloaded == 0:
+                                # Papers found but couldn't download (no OA PDFs)
                                 with init_container:
-                                    st.warning(f"⚠️ {drug}: No papers downloaded (may not have open-access PDFs available)")
+                                    st.warning(f"⚠️ **{drug.title()}**: Found {papers_found} papers but no open-access PDFs available for download")
+                                failed_drugs.append(drug)
+                            else:
+                                # No papers found at all
+                                with init_container:
+                                    st.warning(f"⚠️ **{drug.title()}**: No papers found in PubMed Central")
+                                failed_drugs.append(drug)
                         except Exception as e:
                             error_msg = str(e)
                             print(f"❌ {drug} failed: {error_msg}")
+                            failed_drugs.append(drug)
                             # Check if it's a ChromaDB corruption error
                             if "trailer" in error_msg.lower() or "not defined" in error_msg.lower() or "corrupt" in error_msg.lower():
                                 with init_container:
-                                    st.error(f"❌ {drug}: Database corruption detected. ChromaDB may need to be reset.")
+                                    st.error(f"❌ **{drug.title()}**: Database corruption detected. ChromaDB may need to be reset.")
                             else:
                                 with init_container:
-                                    st.warning(f"⚠️ {drug}: {error_msg[:100]}...")
+                                    st.warning(f"⚠️ **{drug.title()}**: {error_msg[:100]}...")
+                    
+                    # Summary
+                    with init_container:
+                        st.markdown("---")
+                        if success_count > 0:
+                            st.success(f"🎉 **Initialization Summary**: {success_count} of {len(preloaded_drugs)} drugs loaded successfully")
+                            st.info(f"📊 **Process**: For each drug, searched 50 papers and downloaded 2 open-access PDFs")
+                        if failed_drugs:
+                            st.warning(f"⚠️ **Failed to load**: {', '.join([d.title() for d in failed_drugs])}. You can still use custom drug search.")
+                        st.markdown("---")
 
                     with init_container:
                         st.success("🎉 Pre-loaded drugs initialized! Data will persist for future sessions.")

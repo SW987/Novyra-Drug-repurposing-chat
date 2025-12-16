@@ -349,7 +349,7 @@ class PDFIngestionPipeline:
 
         # Search PMC for articles
         pmc_ids, article_links = search_pmc_articles(full_query, max_results=50)  # Search 50 results, download selectively
-        print(f"📋 Found {len(pmc_ids)} PMC articles for '{drug_name}'")
+        print(f"📋 Found {len(pmc_ids)} PMC articles for '{drug_name}' (searching for {max_papers} open-access PDFs)")
 
         if not pmc_ids:
             return {
@@ -365,7 +365,7 @@ class PDFIngestionPipeline:
         ingested_count = 0
         results = []
         papers_attempted = 0
-        max_attempts = min(len(pmc_ids), max_papers * 5)  # Try up to 5x max_papers to find OA PDFs
+        max_attempts = min(len(pmc_ids), 50)  # Try up to 50 papers to find max_papers with OA PDFs
 
         # Download and process papers - continue until we get max_papers or run out
         for pmcid in pmc_ids:

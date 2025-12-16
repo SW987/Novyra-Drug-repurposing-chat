@@ -86,13 +86,17 @@ def retrieve_relevant_chunks(
     # Query vector store with higher top_k for diversity
     initial_results = query_chunks(collection, query_embedding, where_filter, top_k * 2)
 
-    # If no results with drug filter, try broader search (remove drug filter)
+    # If no results with drug filter, don't fall back to broader search
+    # Instead, return empty results so the calling code can show appropriate message
     if not initial_results.get("documents") or len(initial_results.get("documents", [])) == 0:
-        print(f"DEBUG: No results with drug filter, trying broader search")
-        broader_results = query_chunks(collection, query_embedding, None, top_k * 2)  # No filter
-        if broader_results.get("documents") and len(broader_results.get("documents", [])) > 0:
-            print(f"DEBUG: Found {len(broader_results.get('documents', []))} documents with broader search")
-            initial_results = broader_results
+        print(f"DEBUG: No results found for drug '{drug_id}' - returning empty results")
+        # Return empty results instead of searching for other drugs
+        return {
+            "documents": [],
+            "metadatas": [],
+            "distances": [],
+            "ids": []
+        }
 
     # Extract data from dict (query_chunks now returns consistent dict format)
     ids_list = initial_results.get("ids", [])
@@ -411,6 +415,26 @@ def chat_with_documents(
                              "1. **For pre-loaded drugs:** Wait for auto-initialization to complete (2-3 minutes)\n" +
                              "2. **For custom drugs:** Click '🚀 Analyze Drug' to download research papers\n\n" +
                              "Once papers are loaded, I can answer questions about the drug's repurposing opportunities!",
+                    "sources": [],
+                    "session_id": session_id
+                }
+            
+            # Check if this specific drug has any papers
+            drug_specific_results = collection.get(where={"drug_id": drug_id}, limit=1)
+            drug_has_papers = drug_specific_results.get('documents') and len(drug_specific_results.get('documents', [])) > 0
+            
+            if not drug_has_papers:
+                return {
+                    "answer": f"⚠️ **No research papers found for {drug_id.title()}.**\n\n" +
+                             f"The database has papers for other drugs, but no papers were successfully downloaded for **{drug_id.title()}**.\n\n" +
+                             "**Possible reasons:**\n" +
+                             "• No open-access PDFs were available for this drug\n" +
+                             "• Download failed during initialization\n" +
+                             "• Papers failed to process\n\n" +
+                             "**Solutions:**\n" +
+                             f"• Try selecting a different drug (Aspirin, Apomorphine)\n" +
+                             f"• For custom drugs: Click '🚀 Analyze Drug' to manually download papers\n" +
+                             f"• Check if the drug name spelling is correct",
                     "sources": [],
                     "session_id": session_id
                 }
