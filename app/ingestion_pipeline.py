@@ -377,6 +377,53 @@ class PDFIngestionPipeline:
 
         print(f"📁 Saving PDFs to: {output_folder}")
 
+        # Resume support: if a previous run downloaded PDFs but got interrupted (client disconnected / container restart),
+        # reuse any existing valid PDFs in the output folder before downloading new ones.
+        try:
+            existing_pdfs = list(output_folder.glob("*.pdf"))
+        except Exception:
+            existing_pdfs = []
+
+        downloaded_count = 0
+        ingested_count = 0
+        results = []
+
+        if existing_pdfs:
+            print(f"🔄 Found {len(existing_pdfs)} existing PDFs in {output_folder}. Resuming ingestion...")
+            for pdf_path in existing_pdfs:
+                try:
+                    if not is_valid_pdf(str(pdf_path)):
+                        continue
+                    downloaded_count += 1
+                    ingest_result = self.validate_and_ingest_pdf(str(pdf_path), drug_name)
+                    results.append({
+                        "pmcid": "existing_file",
+                        "downloaded": True,
+                        "ingested": ingest_result["success"],
+                        "ingest_result": ingest_result
+                    })
+                    if ingest_result["success"]:
+                        ingested_count += 1
+                        print(f"[SUCCESS] Re-ingested existing PDF: {pdf_path.name} -> {ingest_result.get('chunks_created', 0)} chunks")
+                    else:
+                        print(f"[WARN] Existing PDF failed to ingest: {pdf_path.name} -> {ingest_result.get('error', 'Unknown error')}")
+                    if downloaded_count >= max_papers:
+                        break
+                except Exception as e:
+                    print(f"[WARN] Failed resuming PDF {pdf_path}: {e}")
+
+        # If we already have enough papers locally, skip downloading.
+        if downloaded_count >= max_papers:
+            return {
+                "success": downloaded_count > 0,
+                "drug": drug_name,
+                "papers_found": 0,
+                "downloaded": downloaded_count,
+                "ingested": ingested_count,
+                "output_folder": str(output_folder),
+                "results": results
+            }
+
         # Search PMC for articles
         pmc_ids, article_links = search_pmc_articles(full_query, max_results=50)  # Search 50 results, download selectively
         print(f"📋 Found {len(pmc_ids)} PMC articles for '{drug_name}' (searching for {max_papers} open-access PDFs)")
@@ -391,9 +438,7 @@ class PDFIngestionPipeline:
                 "error": "No papers found in PubMed Central"
             }
 
-        downloaded_count = 0
-        ingested_count = 0
-        results = []
+        # Continue downloading until we reach max_papers total (including any resumed PDFs above)
         papers_attempted = 0
         max_attempts = min(len(pmc_ids), 50)  # Try up to 50 papers to find max_papers with OA PDFs
 
@@ -417,6 +462,23 @@ class PDFIngestionPipeline:
 
             # Download PDF
             save_path = output_folder / f"{drug_name}_repurposing_PMC{pmcid}.pdf"
+            # If file already exists from a previous attempt, ingest it instead of re-downloading.
+            if save_path.exists() and is_valid_pdf(str(save_path)):
+                print(f"[SKIP] PDF already exists: {save_path.name} (ingesting)")
+                downloaded_count += 1
+                ingest_result = self.validate_and_ingest_pdf(str(save_path), drug_name)
+                results.append({
+                    "pmcid": pmcid,
+                    "downloaded": True,
+                    "ingested": ingest_result["success"],
+                    "ingest_result": ingest_result
+                })
+                if ingest_result["success"]:
+                    ingested_count += 1
+                    print(f"[SUCCESS] Ingested existing PDF into vector DB: {ingest_result.get('chunks_created', 0)} chunks")
+                else:
+                    print(f"[ERROR] Failed to ingest existing PDF: {ingest_result.get('error', 'Unknown error')}")
+                continue
             if download_pdf(pdf_url, str(save_path)):
                 downloaded_count += 1
                 print(f"[SUCCESS] Downloaded: {save_path}")
