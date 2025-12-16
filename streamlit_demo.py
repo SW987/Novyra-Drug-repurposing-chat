@@ -13,11 +13,28 @@ from pathlib import Path
 # Import our backend modules
 try:
     from app.config import Settings, get_settings
-    from app.vector_store import init_vector_store
+    from app.vector_store import init_vector_store, is_chromadb_corrupted, reset_chromadb
     from app.rag import chat_with_documents
     from app.schemas import Message
     settings = get_settings()
-    collection = init_vector_store(settings)
+    
+    # Initialize collection with error handling for corruption
+    try:
+        collection = init_vector_store(settings)
+    except Exception as init_error:
+        # Check if it's a corruption error
+        if is_chromadb_corrupted(init_error):
+            print(f"⚠️ ChromaDB corruption detected at startup: {init_error}")
+            print("🔄 Attempting to reset database...")
+            # Reset the database
+            if reset_chromadb(settings):
+                print("✅ Database reset successful, reinitializing...")
+                collection = init_vector_store(settings, reset_on_corruption=False)
+            else:
+                print("❌ Failed to reset database")
+                raise
+        else:
+            raise
 except ImportError as e:
     st.error(f"❌ Failed to import backend modules: {e}")
     st.error("Make sure all backend files are in the app/ directory")
@@ -70,6 +87,9 @@ def init_session_state():
 @st.cache_resource
 def get_collection():
     """Get or create the vector collection (cached to avoid reinitialization)"""
+    global collection
+    settings = get_settings()
+    
     try:
         # Check if global collection exists and is valid
         if 'collection' in globals() and collection is not None:
@@ -77,15 +97,30 @@ def get_collection():
             try:
                 collection.get(limit=1)  # Quick test query
                 return collection
-            except Exception:
-                # Collection exists but may be corrupted, reinitialize
+            except Exception as test_error:
+                # Collection exists but may be corrupted
+                if is_chromadb_corrupted(test_error):
+                    print("⚠️ Collection corrupted, resetting...")
+                    if reset_chromadb(settings):
+                        # Reinitialize after reset
+                        collection = init_vector_store(settings, reset_on_corruption=False)
+                        return collection
+                # Reinitialize for other errors
                 pass
     except NameError:
         pass
     
     # Fallback: reinitialize collection
-    settings = get_settings()
-    return init_vector_store(settings)
+    try:
+        collection = init_vector_store(settings)
+        return collection
+    except Exception as e:
+        if is_chromadb_corrupted(e):
+            print("⚠️ Database corrupted during get_collection, resetting...")
+            if reset_chromadb(settings):
+                collection = init_vector_store(settings, reset_on_corruption=False)
+                return collection
+        raise
 
 @st.cache_data
 def discover_existing_drugs():

@@ -48,9 +48,47 @@ def is_chromadb_corrupted(error: Exception) -> bool:
         "database disk image is malformed",
         "file is not a database",
         "sqlite",
-        "invalid literal"
+        "invalid literal",
+        "no such table",
+        "could not connect to tenant",
+        "operationalerror"
     ]
     return any(indicator in error_str for indicator in corruption_indicators)
+
+
+def check_database_health(db_path: Path) -> bool:
+    """
+    Check if ChromaDB database is healthy by looking for required files.
+    
+    Args:
+        db_path: Path to ChromaDB database directory
+        
+    Returns:
+        True if database appears healthy, False if corrupted
+    """
+    if not db_path.exists():
+        return True  # No database yet, that's fine
+    
+    try:
+        # Check if it's a directory
+        if not db_path.is_dir():
+            return False
+        
+        # Try to create a test client to see if database is accessible
+        test_client = chromadb.PersistentClient(path=str(db_path))
+        # Try to list collections (this will fail if database is corrupted)
+        test_client.list_collections()
+        return True
+    except Exception as e:
+        error_str = str(e).lower()
+        # Check for corruption indicators
+        if any(indicator in error_str for indicator in [
+            "no such table", "operationalerror", "could not connect",
+            "database disk image", "corrupt", "malformed"
+        ]):
+            return False
+        # Other errors might be okay (e.g., no collections yet)
+        return True
 
 
 def reset_chromadb(settings: Settings) -> bool:
@@ -68,8 +106,15 @@ def reset_chromadb(settings: Settings) -> bool:
         db_path = Path(settings.chroma_db_dir)
         if db_path.exists():
             print(f"⚠️ Resetting ChromaDB database at {db_path}")
-            shutil.rmtree(db_path)
-            print(f"✅ Deleted corrupted database directory")
+            # Check health first
+            if not check_database_health(db_path):
+                print(f"⚠️ Database is corrupted, deleting...")
+                shutil.rmtree(db_path)
+                print(f"✅ Deleted corrupted database directory")
+            else:
+                # Database seems healthy, but we're resetting anyway
+                shutil.rmtree(db_path)
+                print(f"✅ Deleted database directory")
         
         # Recreate directory
         db_path.mkdir(parents=True, exist_ok=True)
@@ -101,6 +146,19 @@ def init_vector_store(settings: Settings, reset_on_corruption: bool = True) -> C
             # Ensure database directory exists
             db_path = Path(settings.chroma_db_dir)
             db_path.mkdir(parents=True, exist_ok=True)
+            
+            # Check database health BEFORE creating client
+            if db_path.exists() and not check_database_health(db_path):
+                print(f"⚠️ Database corruption detected before initialization")
+                if reset_on_corruption and retry_count == 0:
+                    print("🔄 Resetting corrupted database...")
+                    if reset_chromadb(settings):
+                        retry_count += 1
+                        continue  # Retry after reset
+                    else:
+                        raise RuntimeError("Failed to reset corrupted database")
+                else:
+                    raise RuntimeError("Database is corrupted and reset is disabled")
             
             client = chromadb.PersistentClient(path=settings.chroma_db_dir)
 
