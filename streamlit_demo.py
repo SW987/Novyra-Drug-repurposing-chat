@@ -126,12 +126,12 @@ def discover_existing_drugs():
                     for metadata_list in metadatas:
                         for metadata in metadata_list:
                             if metadata and isinstance(metadata, dict) and 'drug_id' in metadata:
-                                existing_drugs.add(metadata['drug_id'])
+                                existing_drugs.add(str(metadata['drug_id']).strip().lower())
                 else:
                     # Flat structure
                     for metadata in metadatas:
                         if metadata and isinstance(metadata, dict) and 'drug_id' in metadata:
-                            existing_drugs.add(metadata['drug_id'])
+                            existing_drugs.add(str(metadata['drug_id']).strip().lower())
 
         return existing_drugs
     except Exception as e:
@@ -145,6 +145,12 @@ def process_custom_drug(drug_name):
     status_text = None
     
     try:
+        # Normalize drug name (internal IDs are always lowercase)
+        drug_name = (drug_name or "").strip().lower()
+        if not drug_name:
+            st.error("❌ Please enter a drug name.")
+            return False
+
         # Check if drug is already processed in current session
         if drug_name in st.session_state.processed_drugs:
             st.success(f"✅ '{drug_name.title()}' already processed and ready for chat!")
@@ -663,6 +669,15 @@ def main():
                         AVAILABLE_DRUGS[drug] = f"{drug.title()} - Custom Analysis"
             except Exception as e:
                 print(f"Note: Could not discover drugs for dropdown: {e}")
+
+            # Also include any drugs processed in this session (even if discover fails)
+            try:
+                for drug in st.session_state.get("processed_drugs", set()):
+                    d = str(drug).strip().lower()
+                    if d and d not in AVAILABLE_DRUGS:
+                        AVAILABLE_DRUGS[d] = f"{d.title()} - Custom Analysis"
+            except Exception:
+                pass
             
             # Drug selector for pre-loaded drugs
             # Safely determine the index for the current drug
