@@ -176,7 +176,7 @@ def build_enhanced_query(current_message: str, conversation_history: Optional[Li
     conversation_context = "\n".join(context_parts)
 
     # Create a more specific context-aware query for follow-up questions
-    if any(keyword in current_message.lower() for keyword in ["second", "third", "first", "expand", "more on", "tell me more"]):
+    if any(keyword in current_message.lower() for keyword in ["second", "third", "first", "expand", "more on", "tell me more", "explore"]):
         # Try to infer what the user is referring to from the assistant's last response
         last_assistant_msg = None
         for msg in reversed(conversation_history):
@@ -189,24 +189,47 @@ def build_enhanced_query(current_message: str, conversation_history: Optional[Li
             # Extract numbered items or topics from the last response
             lines = last_assistant_msg.split('\n')
             numbered_items = []
+            section_titles = []
+            
             for line in lines:
-                if any(line.strip().startswith(f"{i}.") or line.strip().startswith(f"{i})") for i in range(1, 10)):
-                    numbered_items.append(line.strip())
+                line_stripped = line.strip()
+                # Check for numbered items (1., 2., etc.)
+                if any(line_stripped.startswith(f"{i}.") or line_stripped.startswith(f"{i})") for i in range(1, 10)):
+                    numbered_items.append(line_stripped)
+                # Check for section titles (like "1. Cancer Treatment and Prevention:")
+                elif line_stripped and line_stripped[0].isdigit() and ':' in line_stripped:
+                    section_titles.append(line_stripped)
             
             # If user asks about "second one" and we found numbered items, enhance the query
-            if "second" in current_message.lower() and len(numbered_items) >= 2:
-                current_message = f"Provide detailed, comprehensive information about: {numbered_items[1]}. {current_message}"
-            elif "first" in current_message.lower() and len(numbered_items) >= 1:
-                current_message = f"Provide detailed, comprehensive information about: {numbered_items[0]}. {current_message}"
-            elif "third" in current_message.lower() and len(numbered_items) >= 3:
-                current_message = f"Provide detailed, comprehensive information about: {numbered_items[2]}. {current_message}"
+            if "second" in current_message.lower():
+                if len(numbered_items) >= 2:
+                    # Extract the topic from the numbered item (remove the number prefix)
+                    topic = numbered_items[1].split('.', 1)[1].strip() if '.' in numbered_items[1] else numbered_items[1]
+                    current_message = f"Provide extremely detailed, comprehensive information about: {topic}. {current_message}"
+                elif len(section_titles) >= 2:
+                    topic = section_titles[1].split(':', 1)[0].split('.', 1)[1].strip() if ':' in section_titles[1] else section_titles[1]
+                    current_message = f"Provide extremely detailed, comprehensive information about: {topic}. {current_message}"
+            elif "first" in current_message.lower():
+                if len(numbered_items) >= 1:
+                    topic = numbered_items[0].split('.', 1)[1].strip() if '.' in numbered_items[0] else numbered_items[0]
+                    current_message = f"Provide extremely detailed, comprehensive information about: {topic}. {current_message}"
+                elif len(section_titles) >= 1:
+                    topic = section_titles[0].split(':', 1)[0].split('.', 1)[1].strip() if ':' in section_titles[0] else section_titles[0]
+                    current_message = f"Provide extremely detailed, comprehensive information about: {topic}. {current_message}"
+            elif "third" in current_message.lower():
+                if len(numbered_items) >= 3:
+                    topic = numbered_items[2].split('.', 1)[1].strip() if '.' in numbered_items[2] else numbered_items[2]
+                    current_message = f"Provide extremely detailed, comprehensive information about: {topic}. {current_message}"
+                elif len(section_titles) >= 3:
+                    topic = section_titles[2].split(':', 1)[0].split('.', 1)[1].strip() if ':' in section_titles[2] else section_titles[2]
+                    current_message = f"Provide extremely detailed, comprehensive information about: {topic}. {current_message}"
 
     enhanced_query = f"""Previous conversation context:
 {conversation_context}
 
 Current user question: {current_message}
 
-IMPORTANT: This appears to be a follow-up question. Provide a detailed, comprehensive, and extensive answer that builds on our previous discussion. If the user is asking about a specific item from a list, clearly identify what they're referring to and provide extensive, detailed information about that topic from the research documents. Do not provide condensed or brief answers - be thorough and comprehensive."""
+IMPORTANT: This is a follow-up question. Provide a detailed, comprehensive, and extensive answer that builds on our previous discussion. If the user is asking about a specific numbered item (like "the second one"), refer to the previous conversation to identify what they mean and provide extensive, detailed information about that specific topic from the research documents. Do not provide condensed or brief answers - be thorough and comprehensive."""
 
     return enhanced_query
 

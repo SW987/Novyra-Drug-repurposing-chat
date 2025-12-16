@@ -155,6 +155,10 @@ def discover_existing_drugs():
 
 def process_custom_drug(drug_name):
     """Process a custom drug: download papers, extract text, and make available for chat"""
+    # Initialize progress indicators early
+    progress_bar = None
+    status_text = None
+    
     try:
         # Check if drug is already processed in current session
         if drug_name in st.session_state.processed_drugs:
@@ -162,19 +166,20 @@ def process_custom_drug(drug_name):
             return True
 
         # Check if drug data already exists in vector store
-        collection = get_collection()
         try:
+            collection = get_collection()
             # Query for existing drug data
             existing_docs = collection.get(where={"drug_id": drug_name}, limit=1)
-            if existing_docs['documents']:
+            if existing_docs.get('documents') and len(existing_docs.get('documents', [])) > 0:
                 st.success(f"✅ '{drug_name.title()}' data found in database - ready for chat!")
                 st.session_state.processed_drugs.add(drug_name)
                 save_persistent_drugs(st.session_state.processed_drugs)  # Save persistently
                 # Add to available drugs for future sessions
                 AVAILABLE_DRUGS[drug_name] = f"{drug_name.title()} - Custom Analysis"
                 return True
-        except Exception:
+        except Exception as check_error:
             # Vector store might be empty or corrupted, continue with download
+            print(f"Note: Could not check existing data: {check_error}")
             pass
 
         # Import the integrated download system
@@ -195,11 +200,21 @@ def process_custom_drug(drug_name):
         progress_bar.progress(20)
 
         # Step 2: Search and download papers
-        status_text.text(f"🔍 Searching PubMed for '{drug_name}' repurposing papers...")
+        status_text.text(f"🔍 Searching PubMed for '{drug_name}' repurposing papers (searching 50 results, downloading 2)...")
         progress_bar.progress(30)
 
         # Run the integrated workflow
-        result = pipeline.download_and_ingest_drug_papers(drug_name, max_papers=2)
+        try:
+            result = pipeline.download_and_ingest_drug_papers(drug_name, max_papers=2)
+        except Exception as pipeline_error:
+            progress_bar.progress(100)
+            status_text.text("❌ Pipeline error")
+            error_msg = str(pipeline_error)
+            print(f"ERROR in pipeline: {error_msg}")
+            st.error(f"❌ **Error during download/processing:** {error_msg[:300]}")
+            if "corrupt" in error_msg.lower() or "database" in error_msg.lower():
+                st.warning("💡 Database issue detected. The app will attempt to recover automatically.")
+            return False
 
         progress_bar.progress(80)
 
@@ -207,13 +222,13 @@ def process_custom_drug(drug_name):
         status_text.text("🧠 Processing downloaded papers...")
         progress_bar.progress(90)
 
-        if result["downloaded"] > 0:
+        if result and result.get("downloaded", 0) > 0:
             progress_bar.progress(100)
             status_text.text("✅ Processing complete!")
 
             # Show results
             st.success(f"🎉 Successfully processed {result['downloaded']} papers for '{drug_name}'!")
-            st.info(f"📊 Found: {result['papers_found']} papers, Downloaded: {result['downloaded']}, Ingested: {result['ingested']}")
+            st.info(f"📊 Found: {result.get('papers_found', 0)} papers, Downloaded: {result['downloaded']}, Ingested: {result.get('ingested', 0)}")
 
             # Mark as processed and save persistently
             st.session_state.processed_drugs.add(drug_name)
@@ -229,17 +244,34 @@ def process_custom_drug(drug_name):
         else:
             progress_bar.progress(100)
             status_text.text("❌ No papers downloaded for this drug.")
-            st.warning(f"No research papers could be downloaded for '{drug_name}' repurposing. Try a different drug name or check the spelling.")
+            papers_found = result.get('papers_found', 0) if result else 0
+            if papers_found > 0:
+                st.warning(f"⚠️ Found {papers_found} papers but couldn't download open-access PDFs for '{drug_name}'. Try a different drug name.")
+            else:
+                st.warning(f"⚠️ No research papers found for '{drug_name}' repurposing. Try a different drug name or check the spelling.")
             return False
 
     except Exception as e:
-        st.error(f"❌ Error processing drug: {str(e)}")
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"ERROR in process_custom_drug: {error_details}")
+        try:
+            progress_bar.progress(100)
+            status_text.text("❌ Error occurred")
+        except:
+            pass
+        error_msg = str(e)
+        st.error(f"❌ **Error processing drug:** {error_msg[:300]}")
+        if len(error_msg) > 300:
+            st.info("💡 Check the console/logs for full error details.")
         return False
     finally:
         # Clean up progress indicators
         try:
-            progress_bar.empty()
-            status_text.empty()
+            if progress_bar is not None:
+                progress_bar.empty()
+            if status_text is not None:
+                status_text.empty()
         except:
             pass
 
@@ -575,7 +607,6 @@ def main():
 
                     # Show immediate feedback
                     st.success(f"✅ Drug '{custom_drug_clean.title()}' selected for analysis!")
-                    st.balloons()  # Celebration effect
 
                     # Trigger automatic processing
                     process_custom_drug(custom_drug_clean)
@@ -618,18 +649,35 @@ def main():
     st.markdown("---")
     st.subheader("💬 Chat about Drug Repurposing")
     
-    # Show database status
-    try:
-        status_collection = get_collection()
-        status_check = status_collection.get(limit=1)
-        has_data = status_check.get('documents') and len(status_check.get('documents', [])) > 0
-        if not has_data and not st.session_state.db_init_checked:
+    # Show database status (only check once, cache result - non-blocking)
+    if "db_status_checked" not in st.session_state:
+        st.session_state.db_status_checked = False
+        st.session_state.db_has_data = None
+    
+    # Only check once, don't block on errors
+    if not st.session_state.db_status_checked:
+        try:
+            # Quick non-blocking check
+            status_collection = get_collection()
+            if status_collection:
+                status_check = status_collection.get(limit=1)
+                has_data = status_check.get('documents') and len(status_check.get('documents', [])) > 0
+                st.session_state.db_has_data = has_data
+            else:
+                st.session_state.db_has_data = None
+            st.session_state.db_status_checked = True
+        except Exception as e:
+            # Don't block on errors, just mark as checked
+            print(f"Status check error (non-blocking): {e}")
+            st.session_state.db_has_data = None
+            st.session_state.db_status_checked = True
+    
+    # Show status only if needed (quick display, no blocking)
+    if st.session_state.db_has_data is False:
+        if not st.session_state.db_init_checked:
             st.info("🔄 **Database is initializing...** Please wait for pre-loaded drugs to download (2-3 minutes).")
-        elif not has_data:
+        else:
             st.warning("⚠️ **Database is empty.** Pre-loaded drugs may have failed to initialize. Try using custom drug search.")
-    except Exception:
-        # If we can't check, don't show status to avoid errors
-        pass
 
     # Display chat history
     for message in st.session_state.messages:
@@ -651,25 +699,6 @@ def main():
         with st.chat_message("assistant"):
             with st.spinner("🔍 Analyzing research papers..."):
                 try:
-                    # Check if database is ready
-                    try:
-                        test_collection = get_collection()
-                        test_result = test_collection.get(limit=1)
-                        if not test_result.get('documents') or len(test_result.get('documents', [])) == 0:
-                            error_msg = "⚠️ **Database is still initializing.**\n\nPlease wait for the pre-loaded drugs to finish downloading (2-3 minutes). You'll see a success message when it's ready."
-                            st.warning(error_msg)
-                            st.session_state.messages.append({"role": "assistant", "content": error_msg})
-                            st.stop()
-                    except Exception as db_check_error:
-                        error_str = str(db_check_error)
-                        if "sessioninfo" in error_str.lower():
-                            error_msg = "⚠️ **Database connection issue.**\n\nPlease refresh the page and try again."
-                        else:
-                            error_msg = f"⚠️ **Database error:** {error_str[:200]}"
-                        st.error(error_msg)
-                        st.session_state.messages.append({"role": "assistant", "content": error_msg})
-                        st.stop()
-                    
                     result = make_chat_request(
                         drug_id=st.session_state.current_drug,
                         message=prompt,
