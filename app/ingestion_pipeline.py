@@ -146,7 +146,13 @@ def safe_gunzip(data):
 # ----------------------------
 def download_pdf(pdf_url, save_path, retries=2):
     for attempt in range(1, retries + 1):
-        temp_file = save_path + ".tmp"
+        # Ensure parent directory exists (can be missing in some deploy environments / race conditions)
+        save_path_p = Path(save_path)
+        save_path_p.parent.mkdir(parents=True, exist_ok=True)
+
+        # Use a unique temp file per attempt to avoid collisions across concurrent sessions
+        import uuid
+        temp_file = str(save_path_p) + f".{uuid.uuid4().hex}.tmp"
 
         try:
             print(f"[INFO] Attempt {attempt}: {pdf_url}")
@@ -188,18 +194,18 @@ def download_pdf(pdf_url, save_path, retries=2):
                     return False
 
             # ---- Save actual PDF ----
-            with open(save_path, "wb") as f:
+            with open(str(save_path_p), "wb") as f:
                 f.write(raw)
 
             if os.path.exists(temp_file):
                 os.remove(temp_file)
 
-            if is_valid_pdf(save_path):
-                print(f"[SUCCESS] Valid PDF saved: {save_path}")
+            if is_valid_pdf(str(save_path_p)):
+                print(f"[SUCCESS] Valid PDF saved: {save_path_p}")
                 return True
             else:
                 print("[SKIP] Invalid PDF content")
-                os.remove(save_path)
+                os.remove(str(save_path_p))
                 return False
 
         except requests.exceptions.Timeout:

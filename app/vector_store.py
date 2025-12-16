@@ -226,6 +226,9 @@ def init_vector_store(settings: Settings, reset_on_corruption: bool = True) -> C
                 else:
                     raise RuntimeError("Database is corrupted and reset is disabled")
             
+            # Reduce noisy telemetry errors in logs (non-fatal, but confusing)
+            os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+
             client = chromadb.PersistentClient(path=str(db_path))
 
             # Define the custom Gemini embedding function for ChromaDB

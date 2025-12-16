@@ -389,12 +389,33 @@ def main():
     # Use session state to prevent running on every Streamlit rerun
     if "db_init_checked" not in st.session_state:
         st.session_state.db_init_checked = False
+    if "db_init_in_progress" not in st.session_state:
+        st.session_state.db_init_in_progress = False
         
     if not st.session_state.db_init_checked:
         # Create container for initialization messages
         init_container = st.container()
         
         try:
+            # Global lock to prevent multiple sessions triggering initialization concurrently
+            # (common on Railway: multiple connections + Streamlit reruns)
+            init_lock_path = Path("/tmp") / "nuvyra_preload_init.lock"
+            if init_lock_path.exists():
+                with init_container:
+                    st.info("🔄 Database initialization is already running in another session. Please wait a moment and refresh.")
+                st.session_state.db_init_checked = True
+                st.session_state.db_init_in_progress = True
+                return
+            try:
+                init_lock_path.write_text(str(time.time()))
+            except Exception:
+                # If we can't write the lock, proceed anyway (best-effort)
+                pass
+
+            # Mark in session immediately so reruns don't start another init
+            st.session_state.db_init_in_progress = True
+            st.session_state.db_init_checked = True
+
             # Get collection (local variable, not modifying global)
             collection = get_collection()
             print("🔍 Checking for existing drug data in persistent vector store...")
@@ -575,14 +596,24 @@ def main():
 
                     with init_container:
                         st.success("🎉 Pre-loaded drugs initialized! Data will persist for future sessions.")
-                    st.session_state.db_init_checked = True
+                    st.session_state.db_init_in_progress = False
+                    try:
+                        if init_lock_path.exists():
+                            init_lock_path.unlink()
+                    except Exception:
+                        pass
                 except Exception as e:
                     error_msg = str(e)[:100]
                     print(f"❌ Drug initialization failed: {error_msg}")
                     with init_container:
                         st.warning(f"⚠️ Auto-initialization failed: {error_msg}")
                         st.info("💡 You can still use custom drug search below to load specific drugs manually.")
-                    st.session_state.db_init_checked = True  # Mark as checked to prevent retry loop
+                    st.session_state.db_init_in_progress = False
+                    try:
+                        if init_lock_path.exists():
+                            init_lock_path.unlink()
+                    except Exception:
+                        pass
             else:
                 print(f"✅ Database already has {total_docs} documents - skipping auto-initialization")
                 # Discover and add any existing drugs to processed_drugs
@@ -592,11 +623,21 @@ def main():
                 for drug in existing_drugs:
                     if drug not in AVAILABLE_DRUGS:
                         AVAILABLE_DRUGS[drug] = f"{drug.title()} - Custom Analysis"
-                st.session_state.db_init_checked = True
+                st.session_state.db_init_in_progress = False
+                try:
+                    if init_lock_path.exists():
+                        init_lock_path.unlink()
+                except Exception:
+                    pass
         except Exception as e:
             error_msg = str(e)[:100]
             print(f"❌ Initialization check error: {error_msg}")
-            st.session_state.db_init_checked = True  # Mark as checked to prevent infinite retries
+            st.session_state.db_init_in_progress = False
+            try:
+                if 'init_lock_path' in locals() and init_lock_path.exists():
+                    init_lock_path.unlink()
+            except Exception:
+                pass
             # Don't show error to user - just log it, app can still work
 
     # Sidebar for drug selection and info
