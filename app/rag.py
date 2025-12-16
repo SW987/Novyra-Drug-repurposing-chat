@@ -48,7 +48,9 @@ def build_filter(drug_id: str, doc_id: Optional[str] = None) -> Dict[str, Any]:
     Returns:
         Filter dictionary for ChromaDB
     """
-    filter_dict = {"drug_id": drug_id}
+    # Normalize drug_id (we store drug_id in metadata as lowercase)
+    drug_id_norm = (drug_id or "").strip().lower()
+    filter_dict = {"drug_id": drug_id_norm}
     if doc_id:
         filter_dict["doc_id"] = doc_id
     return filter_dict
@@ -268,7 +270,8 @@ def build_rag_prompt(query: str, context_chunks: List[str], conversation_history
             history_str = "\n".join(history_parts) + "\n\n"
 
     prompt = f"""You are a helpful assistant specializing in drug repurposing research.
-Use the provided context from scientific papers to answer the user's question accurately and comprehensively.
+Use ONLY the provided context from scientific papers to answer the user's question accurately and comprehensively.
+If the answer is not supported by the provided context, say so clearly and suggest using '🚀 Analyze Drug' or asking a more specific question. Do NOT guess.
 
 IMPORTANT INSTRUCTIONS:
 1. Synthesize information across ALL provided contexts to give a complete, unified answer
@@ -284,7 +287,7 @@ IMPORTANT INSTRUCTIONS:
 
 Question: {query}
 
-Provide a detailed, comprehensive, and informative answer based on the available scientific context. Include specific details and evidence from the research papers:"""
+Provide a detailed, comprehensive, and informative answer based on the available scientific context. Include specific details and evidence from the research papers. If contexts mention other drugs/conditions unrelated to the selected drug, ignore them:"""
 
     return prompt
 

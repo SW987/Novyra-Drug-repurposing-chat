@@ -715,7 +715,8 @@ def main():
             # Safely determine the index for the current drug
             available_drugs_list = list(AVAILABLE_DRUGS.keys())
             current_index = 0  # Default to first drug
-            if st.session_state.current_drug in available_drugs_list:
+            current_drug_is_in_list = st.session_state.current_drug in available_drugs_list
+            if current_drug_is_in_list:
                 current_index = available_drugs_list.index(st.session_state.current_drug)
 
             selected_drug_display = st.selectbox(
@@ -726,11 +727,20 @@ def main():
                 key="drug_selector"
             )
 
-            # Update current drug if changed
-            if selected_drug_display != st.session_state.current_drug:
+            # IMPORTANT:
+            # If the current drug is a custom drug not present in the dropdown yet,
+            # Streamlit will default-select the first option (e.g., aspirin). Do NOT treat
+            # that as a user-initiated drug switch, or chats will appear to "hallucinate"
+            # about the previous drug.
+            if current_drug_is_in_list and selected_drug_display != st.session_state.current_drug:
                 st.session_state.current_drug = selected_drug_display
                 st.session_state.messages = []  # Clear chat when switching drugs
                 st.session_state.session_id = f"streamlit_{int(time.time())}"
+            elif not current_drug_is_in_list:
+                st.info(
+                    f"💡 You're currently chatting about custom drug **{st.session_state.current_drug.title()}**. "
+                    f"Switch to **Custom Drug** mode to change or re-run analysis."
+                )
 
         else:  # Custom Drug Mode
             st.subheader("🔍 Custom Drug Analysis")
@@ -852,7 +862,7 @@ def main():
             with st.spinner("🔍 Analyzing research papers..."):
                 try:
                     result = make_chat_request(
-                        drug_id=st.session_state.current_drug,
+                        drug_id=str(st.session_state.current_drug).strip().lower(),
                         message=prompt,
                         session_id=st.session_state.session_id,
                         conversation_history=st.session_state.messages
