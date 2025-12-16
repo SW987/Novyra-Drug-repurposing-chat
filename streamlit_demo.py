@@ -558,6 +558,19 @@ def main():
     # Chat Interface - Always visible in main content
     st.markdown("---")
     st.subheader("💬 Chat about Drug Repurposing")
+    
+    # Show database status
+    try:
+        status_collection = get_collection()
+        status_check = status_collection.get(limit=1)
+        has_data = status_check.get('documents') and len(status_check.get('documents', [])) > 0
+        if not has_data and not st.session_state.db_init_checked:
+            st.info("🔄 **Database is initializing...** Please wait for pre-loaded drugs to download (2-3 minutes).")
+        elif not has_data:
+            st.warning("⚠️ **Database is empty.** Pre-loaded drugs may have failed to initialize. Try using custom drug search.")
+    except Exception:
+        # If we can't check, don't show status to avoid errors
+        pass
 
     # Display chat history
     for message in st.session_state.messages:
@@ -579,6 +592,25 @@ def main():
         with st.chat_message("assistant"):
             with st.spinner("🔍 Analyzing research papers..."):
                 try:
+                    # Check if database is ready
+                    try:
+                        test_collection = get_collection()
+                        test_result = test_collection.get(limit=1)
+                        if not test_result.get('documents') or len(test_result.get('documents', [])) == 0:
+                            error_msg = "⚠️ **Database is still initializing.**\n\nPlease wait for the pre-loaded drugs to finish downloading (2-3 minutes). You'll see a success message when it's ready."
+                            st.warning(error_msg)
+                            st.session_state.messages.append({"role": "assistant", "content": error_msg})
+                            st.stop()
+                    except Exception as db_check_error:
+                        error_str = str(db_check_error)
+                        if "sessioninfo" in error_str.lower():
+                            error_msg = "⚠️ **Database connection issue.**\n\nPlease refresh the page and try again."
+                        else:
+                            error_msg = f"⚠️ **Database error:** {error_str[:200]}"
+                        st.error(error_msg)
+                        st.session_state.messages.append({"role": "assistant", "content": error_msg})
+                        st.stop()
+                    
                     result = make_chat_request(
                         drug_id=st.session_state.current_drug,
                         message=prompt,
@@ -587,7 +619,11 @@ def main():
                     )
 
                     # Handle both success and error responses
-                    if "error" in result:
+                    if not result:
+                        error_msg = "❌ **No response from server.** Please try again or refresh the page."
+                        st.error(error_msg)
+                        st.session_state.messages.append({"role": "assistant", "content": error_msg})
+                    elif "error" in result:
                         error_msg = f"❌ {result['error']}"
                         st.error(error_msg)
                         st.session_state.messages.append({"role": "assistant", "content": error_msg})
@@ -601,7 +637,7 @@ def main():
                             "content": response_text
                         })
                     else:
-                        error_msg = f"❌ Unexpected response format: {list(result.keys())}"
+                        error_msg = f"❌ Unexpected response format: {list(result.keys()) if result else 'None'}"
                         st.error(error_msg)
                         st.session_state.messages.append({"role": "assistant", "content": error_msg})
 
@@ -610,7 +646,10 @@ def main():
                     st.error(error_msg)
                     st.session_state.messages.append({"role": "assistant", "content": error_msg})
                 except Exception as e:
-                    error_msg = f"❌ Error: {str(e)}"
+                    import traceback
+                    error_details = traceback.format_exc()
+                    print(f"ERROR in chat: {error_details}")
+                    error_msg = f"❌ Error: {str(e)[:300]}"
                     st.error(error_msg)
                     st.session_state.messages.append({"role": "assistant", "content": error_msg})
 
