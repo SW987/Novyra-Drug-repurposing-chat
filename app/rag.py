@@ -82,8 +82,9 @@ def retrieve_relevant_chunks(
     client = get_gemini_client(settings)
     query_embedding = embed_query(query, client, settings.gemini_embedding_model)
 
-    # Build filter
-    where_filter = build_filter(drug_id, doc_id)
+    # Build filter (normalized)
+    drug_id_norm = (drug_id or "").strip().lower()
+    where_filter = build_filter(drug_id_norm, doc_id)
 
     # Query vector store with higher top_k for diversity
     initial_results = query_chunks(collection, query_embedding, where_filter, top_k * 2)
@@ -126,6 +127,18 @@ def retrieve_relevant_chunks(
         documents_list,
         metadatas_list
     )):
+        # Extra safety: ensure chunk really belongs to the selected drug.
+        # This prevents older mis-tagged chunks (e.g., imatinib stored with insulin drug_id)
+        # from leaking into answers.
+        try:
+            meta_drug = str(metadata.get("drug_id", "")).strip().lower()
+            drug_folder = str(metadata.get("drug_folder", "")).strip().lower()
+            folder_drug = drug_folder.split(" ")[0] if drug_folder else meta_drug
+            if folder_drug and folder_drug != drug_id_norm:
+                continue
+        except Exception:
+            pass
+
         current_doc = metadata.get('doc_id', 'unknown')
         if doc_counts.get(current_doc, 0) < 5:  # Limit to 5 chunks per document
             selected_chunks.append((doc_id, distance, document, metadata))
@@ -235,7 +248,12 @@ IMPORTANT: This is a follow-up question. Provide a detailed, comprehensive, and 
 
     return enhanced_query
 
-def build_rag_prompt(query: str, context_chunks: List[str], conversation_history: Optional[List[Union[Message, Dict[str, str]]]] = None) -> str:
+def build_rag_prompt(
+    query: str,
+    drug_id: str,
+    context_chunks: List[str],
+    conversation_history: Optional[List[Union[Message, Dict[str, str]]]] = None
+) -> str:
     """
     Build a RAG prompt with retrieved context.
 
@@ -269,8 +287,10 @@ def build_rag_prompt(query: str, context_chunks: List[str], conversation_history
         if history_parts:
             history_str = "\n".join(history_parts) + "\n\n"
 
+    drug_id_norm = (drug_id or "").strip().lower()
     prompt = f"""You are a helpful assistant specializing in drug repurposing research.
-Use ONLY the provided context from scientific papers to answer the user's question accurately and comprehensively.
+You are answering questions about the selected drug: {drug_id_norm}.
+Use ONLY the provided context from scientific papers about {drug_id_norm} to answer the user's question accurately and comprehensively.
 If the answer is not supported by the provided context, say so clearly and suggest using '🚀 Analyze Drug' or asking a more specific question. Do NOT guess.
 
 IMPORTANT INSTRUCTIONS:
@@ -282,7 +302,7 @@ IMPORTANT INSTRUCTIONS:
 6. Include specific details, mechanisms, findings, and evidence from the research papers
 7. If the user asks about a numbered item from a previous list, clearly identify which item they mean and provide extensive detail about it
 
-{history_str}Context:
+{history_str}Context (about {drug_id_norm}):
 {context}
 
 Question: {query}
@@ -294,6 +314,7 @@ Provide a detailed, comprehensive, and informative answer based on the available
 
 def generate_answer(
     query: str,
+    drug_id: str,
     context_chunks: List[str],
     client: genai,
     model: str,
@@ -313,7 +334,7 @@ def generate_answer(
     Returns:
         Generated answer
     """
-    prompt = build_rag_prompt(query, context_chunks, conversation_history)
+    prompt = build_rag_prompt(query, drug_id, context_chunks, conversation_history)
 
     gemini_model = genai.GenerativeModel(model)
     response = gemini_model.generate_content(
@@ -421,7 +442,8 @@ def chat_with_documents(
 
     # Retrieve relevant chunks (increased top_k for better coverage)
     # All questions (including short ones like "what is happening?") will search documents
-    results = retrieve_relevant_chunks(message, drug_id, collection, settings, doc_id, top_k)
+    drug_id_norm = (drug_id or "").strip().lower()
+    results = retrieve_relevant_chunks(message, drug_id_norm, collection, settings, doc_id, top_k)
 
     # Debug: Log what we found
     num_docs = len(results.get('documents', []))
@@ -446,13 +468,13 @@ def chat_with_documents(
                 }
             
             # Check if this specific drug has any papers
-            drug_specific_results = collection.get(where={"drug_id": drug_id}, limit=1)
+            drug_specific_results = collection.get(where={"drug_id": drug_id_norm}, limit=1)
             drug_has_papers = drug_specific_results.get('documents') and len(drug_specific_results.get('documents', [])) > 0
             
             if not drug_has_papers:
                 return {
-                    "answer": f"⚠️ **No research papers found for {drug_id.title()}.**\n\n" +
-                             f"The database has papers for other drugs, but no papers were successfully downloaded for **{drug_id.title()}**.\n\n" +
+                    "answer": f"⚠️ **No research papers found for {drug_id_norm.title()}.**\n\n" +
+                             f"The database has papers for other drugs, but no papers were successfully downloaded for **{drug_id_norm.title()}**.\n\n" +
                              "**Possible reasons:**\n" +
                              "• No open-access PDFs were available for this drug\n" +
                              "• Download failed during initialization\n" +
@@ -489,7 +511,7 @@ def chat_with_documents(
 
     # Build enhanced prompt with conversation history
     enhanced_query = build_enhanced_query(message, conversation_history)
-    answer = generate_answer(enhanced_query, context_chunks, client, settings.gemini_chat_model, conversation_history)
+    answer = generate_answer(enhanced_query, drug_id_norm, context_chunks, client, settings.gemini_chat_model, conversation_history)
 
     # Extract sources
     sources = extract_sources_from_results(results)
