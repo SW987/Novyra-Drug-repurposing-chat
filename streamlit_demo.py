@@ -278,74 +278,102 @@ def main():
     init_session_state()
 
     # Auto-initialize pre-loaded drugs if database is empty (check persistent vector store)
-    # This only runs once when the database is truly empty, not on every session
-    try:
-        collection = get_collection()
-        print("🔍 Checking for existing drug data in persistent vector store...")
+    # Use session state to prevent running on every Streamlit rerun
+    if "db_init_checked" not in st.session_state:
+        st.session_state.db_init_checked = False
         
-        # Check if ANY drug data exists (not just aspirin)
-        all_results = collection.get(limit=1)
-        documents = all_results.get('documents', [])
-        # Handle nested lists from ChromaDB
-        if documents and isinstance(documents, list) and len(documents) > 0:
-            if isinstance(documents[0], list):
-                # Nested structure - count all inner documents
-                total_docs = sum(len(doc_list) for doc_list in documents if isinstance(doc_list, list))
-            else:
-                # Flat structure
-                total_docs = len(documents)
-        else:
-            total_docs = 0
-        print(f"📊 Total documents in database: {total_docs}")
-
-        if total_docs == 0:
-            # Database is completely empty - initialize pre-loaded drugs
-            print("🚀 Database is empty - initializing pre-loaded drugs...")
-            st.info("🔄 Setting up drug database (this may take a few minutes)...")
-            st.info("💡 This only happens once. Data will persist for future sessions.")
-
+    if not st.session_state.db_init_checked:
+        try:
+            collection = get_collection()
+            print("🔍 Checking for existing drug data in persistent vector store...")
+            
+            # Check if ANY drug data exists (not just aspirin)
             try:
-                from app.ingestion_pipeline import PDFIngestionPipeline
-                pipeline = PDFIngestionPipeline(settings)
-                preloaded_drugs = ["aspirin", "apomorphine", "insulin"]
+                all_results = collection.get(limit=1)
+                documents = all_results.get('documents', [])
+                # Handle nested lists from ChromaDB
+                if documents and isinstance(documents, list) and len(documents) > 0:
+                    if isinstance(documents[0], list):
+                        # Nested structure - count all inner documents
+                        total_docs = sum(len(doc_list) for doc_list in documents if isinstance(doc_list, list))
+                    else:
+                        # Flat structure
+                        total_docs = len(documents)
+                else:
+                    total_docs = 0
+                print(f"📊 Total documents in database: {total_docs}")
+            except Exception as db_error:
+                # Handle ChromaDB corruption or errors
+                error_str = str(db_error)
+                if "trailer" in error_str.lower() or "not defined" in error_str.lower():
+                    print(f"⚠️ ChromaDB database may be corrupted, attempting to reset...")
+                    st.warning("⚠️ Database issue detected. You may need to re-initialize drugs.")
+                    # Mark as checked to prevent infinite loop, but set total_docs to 0 to trigger re-init
+                    total_docs = 0
+                else:
+                    print(f"❌ Error checking database: {error_str}")
+                    total_docs = 0
 
-                for drug in preloaded_drugs:
-                    try:
-                        print(f"📥 Processing {drug}...")
-                        st.info(f"📥 Loading research for {drug}...")
-                        result = pipeline.download_and_ingest_drug_papers(drug, max_papers=2)
-                        downloaded = result.get('downloaded', 0)
-                        print(f"✅ {drug}: {downloaded} papers loaded")
-                        if downloaded > 0:
-                            st.success(f"✅ {drug}: {downloaded} papers ready")
-                            st.session_state.processed_drugs.add(drug)
-                            # Data is automatically persisted in vector store
-                        else:
-                            st.warning(f"⚠️ {drug}: No papers downloaded")
-                    except Exception as e:
-                        error_msg = str(e)[:100]
-                        print(f"❌ {drug} failed: {error_msg}")
-                        st.warning(f"⚠️ {drug}: {error_msg}...")
+            if total_docs == 0:
+                # Database is completely empty - initialize pre-loaded drugs
+                print("🚀 Database is empty - initializing pre-loaded drugs...")
+                init_container = st.container()
+                with init_container:
+                    st.info("🔄 Setting up drug database (this may take a few minutes)...")
+                    st.info("💡 This only happens once. Data will persist for future sessions.")
 
-                st.success("🎉 Pre-loaded drugs initialized! Data will persist for future sessions.")
-            except Exception as e:
-                error_msg = str(e)[:100]
-                print(f"❌ Drug initialization failed: {error_msg}")
-                st.warning(f"⚠️ Auto-initialization failed: {error_msg}")
-                st.info("💡 You can still use custom drug search below to load specific drugs manually.")
-        else:
-            print(f"✅ Database already has {total_docs} documents - skipping auto-initialization")
-            # Discover and add any existing drugs to processed_drugs
-            existing_drugs = discover_existing_drugs()
-            st.session_state.processed_drugs.update(existing_drugs)
-            # Add existing drugs to AVAILABLE_DRUGS
-            for drug in existing_drugs:
-                if drug not in AVAILABLE_DRUGS:
-                    AVAILABLE_DRUGS[drug] = f"{drug.title()} - Custom Analysis"
-    except Exception as e:
-        error_msg = str(e)[:100]
-        print(f"❌ Initialization check error: {error_msg}")
-        # Don't show error to user - just log it, app can still work
+                try:
+                    from app.ingestion_pipeline import PDFIngestionPipeline
+                    pipeline = PDFIngestionPipeline(settings)
+                    preloaded_drugs = ["aspirin", "apomorphine", "insulin"]
+
+                    for drug in preloaded_drugs:
+                        try:
+                            print(f"📥 Processing {drug}...")
+                            with init_container:
+                                st.info(f"📥 Loading research for {drug}...")
+                            result = pipeline.download_and_ingest_drug_papers(drug, max_papers=2)
+                            downloaded = result.get('downloaded', 0)
+                            print(f"✅ {drug}: {downloaded} papers loaded")
+                            if downloaded > 0:
+                                with init_container:
+                                    st.success(f"✅ {drug}: {downloaded} papers ready")
+                                st.session_state.processed_drugs.add(drug)
+                                # Data is automatically persisted in vector store
+                            else:
+                                with init_container:
+                                    st.warning(f"⚠️ {drug}: No papers downloaded")
+                        except Exception as e:
+                            error_msg = str(e)[:100]
+                            print(f"❌ {drug} failed: {error_msg}")
+                            with init_container:
+                                st.warning(f"⚠️ {drug}: {error_msg}...")
+
+                    with init_container:
+                        st.success("🎉 Pre-loaded drugs initialized! Data will persist for future sessions.")
+                    st.session_state.db_init_checked = True
+                except Exception as e:
+                    error_msg = str(e)[:100]
+                    print(f"❌ Drug initialization failed: {error_msg}")
+                    with init_container:
+                        st.warning(f"⚠️ Auto-initialization failed: {error_msg}")
+                        st.info("💡 You can still use custom drug search below to load specific drugs manually.")
+                    st.session_state.db_init_checked = True  # Mark as checked to prevent retry loop
+            else:
+                print(f"✅ Database already has {total_docs} documents - skipping auto-initialization")
+                # Discover and add any existing drugs to processed_drugs
+                existing_drugs = discover_existing_drugs()
+                st.session_state.processed_drugs.update(existing_drugs)
+                # Add existing drugs to AVAILABLE_DRUGS
+                for drug in existing_drugs:
+                    if drug not in AVAILABLE_DRUGS:
+                        AVAILABLE_DRUGS[drug] = f"{drug.title()} - Custom Analysis"
+                st.session_state.db_init_checked = True
+        except Exception as e:
+            error_msg = str(e)[:100]
+            print(f"❌ Initialization check error: {error_msg}")
+            st.session_state.db_init_checked = True  # Mark as checked to prevent infinite retries
+            # Don't show error to user - just log it, app can still work
 
     # Sidebar for drug selection and info
     with st.sidebar:
