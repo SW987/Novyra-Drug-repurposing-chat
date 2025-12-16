@@ -436,19 +436,40 @@ def main():
             
             # Check if ANY drug data exists (not just aspirin)
             try:
+                # First, try to get any documents
                 all_results = collection.get(limit=1)
-                documents = all_results.get('documents', [])
-                # Handle nested lists from ChromaDB
-                if documents and isinstance(documents, list) and len(documents) > 0:
-                    if isinstance(documents[0], list):
-                        # Nested structure - count all inner documents
-                        total_docs = sum(len(doc_list) for doc_list in documents if isinstance(doc_list, list))
+                ids = all_results.get('ids', [])
+                print(f"🔍 Database check: Got {len(ids) if ids else 0} IDs from collection.get(limit=1)")
+                
+                # Check if any IDs exist (more reliable than checking documents)
+                if ids and isinstance(ids, list) and len(ids) > 0:
+                    # Handle nested lists from ChromaDB
+                    if isinstance(ids[0], list):
+                        # Nested structure - count all inner IDs
+                        total_docs = sum(len(id_list) for id_list in ids if isinstance(id_list, list))
+                        print(f"📊 Nested structure detected: {total_docs} documents")
                     else:
                         # Flat structure
-                        total_docs = len(documents)
+                        total_docs = len(ids)
+                        print(f"📊 Flat structure: {total_docs} documents")
                 else:
                     total_docs = 0
-                print(f"📊 Total documents in database: {total_docs}")
+                    print("📊 No IDs found in initial check")
+                
+                # If no results from get(), try querying for aspirin specifically as a fallback
+                if total_docs == 0:
+                    try:
+                        print("🔍 Trying fallback: querying for aspirin specifically...")
+                        aspirin_results = collection.get(where={"drug_id": "aspirin"}, limit=1)
+                        aspirin_ids = aspirin_results.get('ids', [])
+                        if aspirin_ids and len(aspirin_ids) > 0:
+                            total_docs = 1  # At least one document exists
+                            print("📊 Found data by querying for aspirin")
+                    except Exception as fallback_error:
+                        print(f"⚠️ Fallback query failed: {fallback_error}")
+                        pass  # If query fails, assume no data
+                
+                print(f"📊 Final check: Total documents in database: {total_docs}")
             except Exception as db_error:
                 # Handle ChromaDB corruption or errors
                 from app.vector_store import is_chromadb_corrupted, reset_chromadb, init_vector_store
@@ -539,11 +560,21 @@ def main():
                                 # Data is automatically persisted in vector store
                             elif downloaded > 0 and ingested == 0:
                                 # Papers downloaded but failed to save (likely ChromaDB issue)
-                                error_detail = result.get('error', 'Unknown error')
-                                print(f"⚠️ {drug}: Papers downloaded but failed to save to database")
+                                # Get detailed error from results
+                                error_details = []
+                                for res in result.get('results', []):
+                                    if res.get('downloaded') and not res.get('ingested'):
+                                        ingest_result = res.get('ingest_result', {})
+                                        error_msg = ingest_result.get('error', 'Unknown ingestion error')
+                                        error_details.append(error_msg)
+                                
+                                error_summary = error_details[0] if error_details else 'Unknown error'
+                                print(f"⚠️ {drug}: Papers downloaded but failed to save to database. Error: {error_summary}")
                                 with init_container:
-                                    st.warning(f"⚠️ **{drug.title()}**: Downloaded {downloaded} papers but failed to save. Database may be corrupted.")
-                                    st.error(f"💡 **Solution**: The ChromaDB database may need to be reset. Contact support or check logs.")
+                                    st.warning(f"⚠️ **{drug.title()}**: Downloaded {downloaded} papers but failed to save.")
+                                    st.error(f"❌ **Error**: {error_summary[:200]}")
+                                    if "corrupt" in error_summary.lower() or "database" in error_summary.lower():
+                                        st.info("💡 Solution: The ChromaDB database may need to be reset. Contact support or check logs.")
                                 failed_drugs.append(drug)
                             elif papers_found > 0 and downloaded == 0:
                                 # Papers found but couldn't download (no OA PDFs)
