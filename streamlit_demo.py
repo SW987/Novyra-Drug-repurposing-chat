@@ -269,6 +269,56 @@ def process_custom_drug(drug_name):
         if len(error_msg) > 300:
             st.info("💡 Check the console/logs for full error details.")
         return False
+
+
+def maybe_auto_resume_custom_drug(drug_name: str) -> None:
+    """
+    If a previous run was interrupted (browser 'Connecting…', container restart),
+    we may have PDFs on disk but no chunks in Chroma yet. Auto-resume ingestion once.
+    """
+    try:
+        drug = (drug_name or "").strip().lower()
+        if not drug:
+            return
+
+        # Only resume for custom drugs not marked ready yet
+        if drug in st.session_state.get("processed_drugs", set()):
+            return
+
+        resume_key = f"auto_resume_done_{drug}"
+        if st.session_state.get(resume_key):
+            return
+
+        # Check for existing PDFs in /data/docs or configured docs_dir
+        settings = get_settings()
+        candidate_base_dirs = [Path("/data") / "docs", Path(settings.docs_dir)]
+        pdf_found = False
+        for base_dir in candidate_base_dirs:
+            folder = base_dir / f"{drug} repurposing"
+            if folder.exists():
+                pdfs = list(folder.glob("*.pdf"))
+                if pdfs:
+                    pdf_found = True
+                    break
+
+        if not pdf_found:
+            return
+
+        # Check if the DB already has chunks for this drug
+        collection = get_collection()
+        existing = collection.get(where={"drug_id": drug}, limit=1)
+        has_chunks = existing.get("documents") and len(existing.get("documents", [])) > 0
+        if has_chunks:
+            st.session_state.processed_drugs.add(drug)
+            AVAILABLE_DRUGS[drug] = f"{drug.title()} - Custom Analysis"
+            return
+
+        # Auto-resume once per session
+        st.session_state[resume_key] = True
+        st.info(f"🔄 Resuming interrupted analysis for **{drug.title()}** (found PDFs on disk)...")
+        process_custom_drug(drug)
+    except Exception as e:
+        print(f"Auto-resume skipped: {e}")
     finally:
         # Clean up progress indicators
         try:
@@ -785,6 +835,8 @@ def main():
                 else:
                     st.info(f"📊 **Active Drug Analysis**: {drug_title}")
                     st.warning("⚠️ Click '🚀 Analyze Drug' to automatically download papers and enable chat.")
+                    # If the previous run was interrupted, auto-resume from existing PDFs once
+                    maybe_auto_resume_custom_drug(st.session_state.current_drug)
 
             if st.session_state.current_drug and st.session_state.current_drug not in AVAILABLE_DRUGS:
                 st.info(f"📊 Currently analyzing: **{st.session_state.current_drug.title()}**")
