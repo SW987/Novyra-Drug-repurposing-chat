@@ -255,7 +255,6 @@ def display_chat_message(message: Dict[str, Any], is_user: bool = False):
 
 def main():
     """Main Streamlit application"""
-    st.write("DEBUG: Streamlit app main() function entered") # Very early debug print
     st.set_page_config(
         page_title="Drug Repurposing Chat",
         page_icon="💊",
@@ -371,19 +370,16 @@ def main():
 
         st.subheader("Available Options")
 
-    st.write("DEBUG: Outside sidebar, before chat interface") # Debug print
 
     # Chat Interface - Always visible in main content
     st.markdown("---")
     st.subheader("💬 Chat about Drug Repurposing")
 
-    st.write("DEBUG: Before chat history loop") # Debug print
     # Display chat history
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    st.write("DEBUG: Before chat input") # Debug print
     # Chat input
     if prompt := st.chat_input("Ask about drug repurposing research..."):
         st.write("DEBUG: Chat input triggered") # Debug print

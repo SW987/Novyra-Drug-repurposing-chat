@@ -155,7 +155,7 @@ def build_enhanced_query(current_message: str, conversation_history: Optional[Li
 
     # Build context from recent conversation
     context_parts = []
-    for msg in conversation_history[-6:]:  # Last 6 messages for context
+    for msg in conversation_history[-8:]:  # Last 8 messages for broader context
         # Handle both Message objects and dict formats
         if hasattr(msg, 'role'):
             role = msg.role
@@ -171,9 +171,9 @@ def build_enhanced_query(current_message: str, conversation_history: Optional[Li
 
     conversation_context = "\n".join(context_parts)
 
-    # Create a more specific context-aware query
-    if "second" in current_message.lower() or "expand" in current_message.lower():
-        # Try to infer what "second" refers to from the assistant's last response
+    # Create a more specific context-aware query for follow-up questions
+    if any(keyword in current_message.lower() for keyword in ["second", "third", "first", "expand", "more on", "tell me more"]):
+        # Try to infer what the user is referring to from the assistant's last response
         last_assistant_msg = None
         for msg in reversed(conversation_history):
             if (hasattr(msg, 'role') and msg.role == 'assistant') or msg.get('role') == 'assistant':
@@ -181,16 +181,28 @@ def build_enhanced_query(current_message: str, conversation_history: Optional[Li
                 last_assistant_msg = content
                 break
 
-        if last_assistant_msg and any(keyword in last_assistant_msg.lower() for keyword in ['cardiovascular', 'anti-aging', 'cancer', 'covid']):
-            # Make the query more specific based on context
-            current_message = f"Based on our previous discussion about metformin repurposing opportunities, {current_message}"
+        if last_assistant_msg:
+            # Extract numbered items or topics from the last response
+            lines = last_assistant_msg.split('\n')
+            numbered_items = []
+            for line in lines:
+                if any(line.strip().startswith(f"{i}.") or line.strip().startswith(f"{i})") for i in range(1, 10)):
+                    numbered_items.append(line.strip())
+            
+            # If user asks about "second one" and we found numbered items, enhance the query
+            if "second" in current_message.lower() and len(numbered_items) >= 2:
+                current_message = f"Provide detailed, comprehensive information about: {numbered_items[1]}. {current_message}"
+            elif "first" in current_message.lower() and len(numbered_items) >= 1:
+                current_message = f"Provide detailed, comprehensive information about: {numbered_items[0]}. {current_message}"
+            elif "third" in current_message.lower() and len(numbered_items) >= 3:
+                current_message = f"Provide detailed, comprehensive information about: {numbered_items[2]}. {current_message}"
 
     enhanced_query = f"""Previous conversation context:
 {conversation_context}
 
 Current user question: {current_message}
 
-IMPORTANT: This appears to be a follow-up question. Provide a detailed, comprehensive answer that builds on our previous discussion. If the user is asking about a specific item from a list, clearly identify what they're referring to and provide detailed information about that topic from the research documents."""
+IMPORTANT: This appears to be a follow-up question. Provide a detailed, comprehensive, and extensive answer that builds on our previous discussion. If the user is asking about a specific item from a list, clearly identify what they're referring to and provide extensive, detailed information about that topic from the research documents. Do not provide condensed or brief answers - be thorough and comprehensive."""
 
     return enhanced_query
 
@@ -211,7 +223,7 @@ def build_rag_prompt(query: str, context_chunks: List[str], conversation_history
     history_str = ""
     if conversation_history:
         history_parts = []
-        for msg in conversation_history[-4:]:  # Last 4 messages for context
+        for msg in conversation_history[-8:]:  # Last 8 messages for broader context
             # Handle both Message objects and dict formats
             if hasattr(msg, 'role'):
                 role = msg.role
@@ -235,15 +247,17 @@ IMPORTANT INSTRUCTIONS:
 1. Synthesize information across ALL provided contexts to give a complete, unified answer
 2. Do not just repeat information - combine and summarize key findings from all documents
 3. If the context seems limited, provide what information is available and note any gaps
-4. For follow-up questions, build upon previous context while adding new details
-5. Be comprehensive but concise - provide detailed explanations within reasonable length
+4. For follow-up questions (like "more on the second one"), carefully review the previous conversation to understand what the user is referring to, then provide detailed, expanded information about that specific topic
+5. ALWAYS provide detailed, comprehensive answers - do not be overly brief or condensed
+6. Include specific details, mechanisms, findings, and evidence from the research papers
+7. If the user asks about a numbered item from a previous list, clearly identify which item they mean and provide extensive detail about it
 
 {history_str}Context:
 {context}
 
 Question: {query}
 
-Provide a detailed and comprehensive answer based on the available scientific context:"""
+Provide a detailed, comprehensive, and informative answer based on the available scientific context. Include specific details and evidence from the research papers:"""
 
     return prompt
 
@@ -276,7 +290,7 @@ def generate_answer(
         prompt,
         generation_config=genai.types.GenerationConfig(
             temperature=temperature,
-            max_output_tokens=2000,  # Increased for more detailed responses
+            max_output_tokens=4000,  # Increased for comprehensive, detailed responses
         )
     )
 
