@@ -1,9 +1,14 @@
 import chromadb
 from chromadb import Collection
 from typing import Dict, List, Any, Optional
+from pathlib import Path
 from .config import Settings
 import chromadb.utils.embedding_functions as embedding_functions
 import google.generativeai as genai # Needed for custom embedding function
+import shutil
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Removed: from .ingestion import get_gemini_client # This caused circular import
 
@@ -25,33 +30,153 @@ class GeminiEmbeddingFunction(embedding_functions.EmbeddingFunction):
         return embeddings
 
 
-def init_vector_store(settings: Settings) -> Collection:
+def is_chromadb_corrupted(error: Exception) -> bool:
+    """
+    Check if an error indicates ChromaDB corruption.
+    
+    Args:
+        error: Exception to check
+        
+    Returns:
+        True if error indicates corruption
+    """
+    error_str = str(error).lower()
+    corruption_indicators = [
+        "trailer",
+        "not defined",
+        "corrupt",
+        "database disk image is malformed",
+        "file is not a database",
+        "sqlite",
+        "invalid literal"
+    ]
+    return any(indicator in error_str for indicator in corruption_indicators)
+
+
+def reset_chromadb(settings: Settings) -> bool:
+    """
+    Reset ChromaDB by deleting the database directory and recreating it.
+    Use this as a last resort when corruption is detected.
+    
+    Args:
+        settings: Application settings
+        
+    Returns:
+        True if reset was successful
+    """
+    try:
+        db_path = Path(settings.chroma_db_dir)
+        if db_path.exists():
+            print(f"⚠️ Resetting ChromaDB database at {db_path}")
+            shutil.rmtree(db_path)
+            print(f"✅ Deleted corrupted database directory")
+        
+        # Recreate directory
+        db_path.mkdir(parents=True, exist_ok=True)
+        print(f"✅ Created fresh database directory")
+        return True
+    except Exception as e:
+        print(f"❌ Failed to reset ChromaDB: {e}")
+        return False
+
+
+def init_vector_store(settings: Settings, reset_on_corruption: bool = True) -> Collection:
     """
     Initialize ChromaDB persistent client and get/create collection.
     Ensures the collection is created with the correct embedding function.
+    Handles corruption detection and recovery.
+    
+    Args:
+        settings: Application settings
+        reset_on_corruption: If True, automatically reset corrupted database
+        
+    Returns:
+        ChromaDB collection
     """
-    client = chromadb.PersistentClient(path=settings.chroma_db_dir)
+    max_retries = 2
+    retry_count = 0
+    
+    while retry_count < max_retries:
+        try:
+            # Ensure database directory exists
+            db_path = Path(settings.chroma_db_dir)
+            db_path.mkdir(parents=True, exist_ok=True)
+            
+            client = chromadb.PersistentClient(path=settings.chroma_db_dir)
 
-    # Define the custom Gemini embedding function for ChromaDB
-    gemini_ef = GeminiEmbeddingFunction(
-        api_key=settings.gemini_api_key,
-        model_name=settings.gemini_embedding_model
-    )
+            # Define the custom Gemini embedding function for ChromaDB
+            gemini_ef = GeminiEmbeddingFunction(
+                api_key=settings.gemini_api_key,
+                model_name=settings.gemini_embedding_model
+            )
 
-    collection = client.get_or_create_collection(
-        name=settings.chroma_collection_name,
-        metadata={"hnsw:space": "cosine"},
-        embedding_function=gemini_ef  # Explicitly set the custom embedding function
-    )
+            # Try to get or create collection
+            try:
+                collection = client.get_or_create_collection(
+                    name=settings.chroma_collection_name,
+                    metadata={"hnsw:space": "cosine"},
+                    embedding_function=gemini_ef
+                )
+            except Exception as e:
+                if is_chromadb_corrupted(e):
+                    print(f"⚠️ ChromaDB corruption detected during collection access: {e}")
+                    if reset_on_corruption and retry_count == 0:
+                        print("🔄 Attempting to reset corrupted database...")
+                        if reset_chromadb(settings):
+                            retry_count += 1
+                            continue  # Retry after reset
+                    raise
+                else:
+                    raise
 
-    # CRITICAL: Verify and enforce 768-dimensional embeddings for demo guarantee
-    # Test embedding to confirm dimensions
-    test_embedding = gemini_ef(["test query for dimension verification"])
-    if len(test_embedding[0]) != 768:
-        raise ValueError(f"Embedding dimension mismatch! Expected 768, got {len(test_embedding[0])}")
+            # Test the collection by trying a simple query to ensure it's fully initialized
+            try:
+                test_result = collection.get(limit=1)
+                # If we get here, the collection is accessible
+            except Exception as e:
+                error_str = str(e).lower()
+                # Check for SessionInfo errors specifically (ChromaDB session not ready)
+                if "sessioninfo" in error_str or ("session" in error_str and "initialized" in error_str):
+                    print(f"⚠️ ChromaDB session not ready: {e}")
+                    if retry_count < max_retries - 1:
+                        # Recreate client and collection
+                        retry_count += 1
+                        continue  # Retry with fresh client
+                    else:
+                        raise RuntimeError(f"ChromaDB session failed to initialize: {e}") from e
+                elif is_chromadb_corrupted(e):
+                    print(f"⚠️ ChromaDB corruption detected during test query: {e}")
+                    if reset_on_corruption and retry_count == 0:
+                        print("🔄 Attempting to reset corrupted database...")
+                        if reset_chromadb(settings):
+                            retry_count += 1
+                            continue  # Retry after reset
+                    raise
+                else:
+                    raise
 
-    print(f"[OK] Verified: Embedding function produces {len(test_embedding[0])}-dimensional vectors")
-    return collection
+            # CRITICAL: Verify and enforce 768-dimensional embeddings for demo guarantee
+            # Test embedding to confirm dimensions
+            test_embedding = gemini_ef(["test query for dimension verification"])
+            if len(test_embedding[0]) != 768:
+                raise ValueError(f"Embedding dimension mismatch! Expected 768, got {len(test_embedding[0])}")
+
+            print(f"[OK] Verified: Embedding function produces {len(test_embedding[0])}-dimensional vectors")
+            return collection
+            
+        except Exception as e:
+            if is_chromadb_corrupted(e) and retry_count < max_retries - 1:
+                print(f"⚠️ ChromaDB corruption detected: {e}")
+                if reset_on_corruption:
+                    print("🔄 Attempting to reset corrupted database...")
+                    if reset_chromadb(settings):
+                        retry_count += 1
+                        continue  # Retry after reset
+            # If we can't recover, raise the error
+            raise
+    
+    # If we exhausted retries, raise an error
+    raise RuntimeError("Failed to initialize ChromaDB after corruption recovery attempts")
 
 
 def upsert_chunks(
@@ -62,18 +187,32 @@ def upsert_chunks(
 ) -> None:
     """
     Add or update chunks in the vector store.
+    Handles corruption errors gracefully.
 
     Args:
         collection: ChromaDB collection
         texts: List of text chunks
         metadatas: List of metadata dictionaries for each chunk
         ids: List of unique IDs for each chunk
+        
+    Raises:
+        RuntimeError: If ChromaDB corruption is detected
+        Exception: Other errors from ChromaDB
     """
-    collection.add(
-        documents=texts,
-        metadatas=metadatas,
-        ids=ids
-    )
+    try:
+        collection.add(
+            documents=texts,
+            metadatas=metadatas,
+            ids=ids
+        )
+    except Exception as e:
+        if is_chromadb_corrupted(e):
+            error_msg = f"ChromaDB corruption detected during write: {e}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
+        else:
+            # Re-raise other errors as-is
+            raise
 
 
 def query_chunks(
@@ -84,6 +223,7 @@ def query_chunks(
 ) -> Dict[str, List]:
     """
     Query the vector store for similar chunks.
+    Handles corruption errors gracefully.
 
     Args:
         collection: ChromaDB collection
@@ -92,14 +232,30 @@ def query_chunks(
         top_k: Number of results to return
 
     Returns:
-        QueryResult with documents, metadatas, distances, and ids
+        Dict with documents, metadatas, distances, and ids (empty lists on corruption)
     """
-    results = collection.query(
-        query_embeddings=[query_embedding],
-        where=where,
-        n_results=top_k,
-        include=["documents", "metadatas", "distances"]
-    )
+    try:
+        results = collection.query(
+            query_embeddings=[query_embedding],
+            where=where,
+            n_results=top_k,
+            include=["documents", "metadatas", "distances"]
+        )
+    except Exception as e:
+        if is_chromadb_corrupted(e):
+            error_msg = f"ChromaDB corruption detected during query: {e}"
+            logger.error(error_msg)
+            # Return empty results instead of crashing to allow app to continue
+            # The calling code should handle this gracefully
+            return {
+                "documents": [],
+                "metadatas": [],
+                "distances": [],
+                "ids": []
+            }
+        else:
+            # Re-raise other errors as-is
+            raise
 
     # Extract data from ChromaDB results
     documents = results.get("documents", [])

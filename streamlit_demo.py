@@ -71,11 +71,21 @@ def init_session_state():
 def get_collection():
     """Get or create the vector collection (cached to avoid reinitialization)"""
     try:
-        return collection
+        # Check if global collection exists and is valid
+        if 'collection' in globals() and collection is not None:
+            # Test if collection is accessible
+            try:
+                collection.get(limit=1)  # Quick test query
+                return collection
+            except Exception:
+                # Collection exists but may be corrupted, reinitialize
+                pass
     except NameError:
-        # Fallback if global collection not available
-        settings = get_settings()
-        return init_vector_store(settings)
+        pass
+    
+    # Fallback: reinitialize collection
+    settings = get_settings()
+    return init_vector_store(settings)
 
 @st.cache_data
 def discover_existing_drugs():
@@ -201,8 +211,26 @@ def process_custom_drug(drug_name):
 def make_chat_request(drug_id: str, message: str, session_id: str, conversation_history: List[Dict[str, str]] = None) -> Dict[str, Any]:
     """Make a chat request using the integrated RAG system"""
     try:
-        # Get the vector collection
-        vector_collection = get_collection()
+        # Get the vector collection (with retry for SessionInfo errors)
+        max_retries = 2
+        for attempt in range(max_retries):
+            try:
+                vector_collection = get_collection()
+                # Test if collection is accessible
+                vector_collection.get(limit=1)
+                break  # Success, exit retry loop
+            except Exception as coll_error:
+                error_str = str(coll_error).lower()
+                if "sessioninfo" in error_str or ("session" in error_str and "initialized" in error_str):
+                    print(f"⚠️ ChromaDB session error on attempt {attempt + 1}, retrying...")
+                    if attempt < max_retries - 1:
+                        # Clear cache and retry
+                        get_collection.clear()
+                        continue
+                    else:
+                        return {"error": f"Database session error: {str(coll_error)}. Please refresh the page."}
+                else:
+                    raise  # Re-raise if not a session error
 
         # Call the RAG system directly
         # conversation_history is already in dict format, which chat_with_documents accepts
@@ -221,6 +249,9 @@ def make_chat_request(drug_id: str, message: str, session_id: str, conversation_
         import traceback
         error_details = traceback.format_exc()
         print(f"ERROR in make_chat_request: {error_details}")
+        error_str = str(e).lower()
+        if "sessioninfo" in error_str or ("session" in error_str and "initialized" in error_str):
+            return {"error": "Database session error. Please refresh the page and try again."}
         return {"error": f"RAG system error: {str(e)}"}
 
 def display_source(source, index: int) -> None:
@@ -283,7 +314,11 @@ def main():
         st.session_state.db_init_checked = False
         
     if not st.session_state.db_init_checked:
+        # Create container for initialization messages
+        init_container = st.container()
+        
         try:
+            # Get collection (local variable, not modifying global)
             collection = get_collection()
             print("🔍 Checking for existing drug data in persistent vector store...")
             
@@ -304,12 +339,41 @@ def main():
                 print(f"📊 Total documents in database: {total_docs}")
             except Exception as db_error:
                 # Handle ChromaDB corruption or errors
+                from app.vector_store import is_chromadb_corrupted, reset_chromadb, init_vector_store
                 error_str = str(db_error)
-                if "trailer" in error_str.lower() or "not defined" in error_str.lower():
-                    print(f"⚠️ ChromaDB database may be corrupted, attempting to reset...")
-                    st.warning("⚠️ Database issue detected. You may need to re-initialize drugs.")
-                    # Mark as checked to prevent infinite loop, but set total_docs to 0 to trigger re-init
-                    total_docs = 0
+                
+                if is_chromadb_corrupted(db_error):
+                    print(f"⚠️ ChromaDB database corruption detected: {error_str}")
+                    with init_container:
+                        st.error("❌ **Database Corruption Detected**")
+                        st.warning("⚠️ The ChromaDB database appears to be corrupted. Attempting to reset...")
+                    
+                    # Try to reset the database
+                    try:
+                        if reset_chromadb(settings):
+                            with init_container:
+                                st.success("✅ Database reset successful. Re-initializing collection...")
+                            # Clear the cached collection to force re-initialization
+                            get_collection.clear()  # Clear Streamlit cache
+                            # Re-initialize the collection (local variable)
+                            collection = init_vector_store(settings, reset_on_corruption=False)
+                            # Re-check after reset
+                            try:
+                                all_results = collection.get(limit=1)
+                                total_docs = 0  # Will trigger re-initialization
+                            except Exception:
+                                total_docs = 0
+                        else:
+                            with init_container:
+                                st.error("❌ Failed to reset database. Please contact support.")
+                            total_docs = 0
+                            st.session_state.db_init_checked = True  # Prevent infinite loop
+                    except Exception as reset_error:
+                        print(f"❌ Failed to reset database: {reset_error}")
+                        with init_container:
+                            st.error(f"❌ Cannot recover from database corruption: {str(reset_error)[:200]}")
+                        total_docs = 0
+                        st.session_state.db_init_checked = True  # Prevent infinite loop
                 else:
                     print(f"❌ Error checking database: {error_str}")
                     total_docs = 0
@@ -317,7 +381,7 @@ def main():
             if total_docs == 0:
                 # Database is completely empty - initialize pre-loaded drugs
                 print("🚀 Database is empty - initializing pre-loaded drugs...")
-                init_container = st.container()
+                # Use existing init_container, don't create a new one
                 with init_container:
                     st.info("🔄 Setting up drug database (this may take a few minutes)...")
                     st.info("💡 This only happens once. Data will persist for future sessions.")
@@ -334,20 +398,34 @@ def main():
                                 st.info(f"📥 Loading research for {drug}...")
                             result = pipeline.download_and_ingest_drug_papers(drug, max_papers=2)
                             downloaded = result.get('downloaded', 0)
-                            print(f"✅ {drug}: {downloaded} papers loaded")
-                            if downloaded > 0:
+                            ingested = result.get('ingested', 0)
+                            print(f"✅ {drug}: {downloaded} papers downloaded, {ingested} ingested")
+                            
+                            if downloaded > 0 and ingested > 0:
                                 with init_container:
-                                    st.success(f"✅ {drug}: {downloaded} papers ready")
+                                    st.success(f"✅ {drug}: {downloaded} papers downloaded, {ingested} chunks saved")
                                 st.session_state.processed_drugs.add(drug)
                                 # Data is automatically persisted in vector store
+                            elif downloaded > 0 and ingested == 0:
+                                # Papers downloaded but failed to save (likely ChromaDB issue)
+                                error_detail = result.get('error', 'Unknown error')
+                                print(f"⚠️ {drug}: Papers downloaded but failed to save to database")
+                                with init_container:
+                                    st.warning(f"⚠️ {drug}: Downloaded {downloaded} papers but failed to save. Database may be corrupted.")
+                                    st.error(f"💡 **Solution**: The ChromaDB database may need to be reset. Contact support or check logs.")
                             else:
                                 with init_container:
-                                    st.warning(f"⚠️ {drug}: No papers downloaded")
+                                    st.warning(f"⚠️ {drug}: No papers downloaded (may not have open-access PDFs available)")
                         except Exception as e:
-                            error_msg = str(e)[:100]
+                            error_msg = str(e)
                             print(f"❌ {drug} failed: {error_msg}")
-                            with init_container:
-                                st.warning(f"⚠️ {drug}: {error_msg}...")
+                            # Check if it's a ChromaDB corruption error
+                            if "trailer" in error_msg.lower() or "not defined" in error_msg.lower() or "corrupt" in error_msg.lower():
+                                with init_container:
+                                    st.error(f"❌ {drug}: Database corruption detected. ChromaDB may need to be reset.")
+                            else:
+                                with init_container:
+                                    st.warning(f"⚠️ {drug}: {error_msg[:100]}...")
 
                     with init_container:
                         st.success("🎉 Pre-loaded drugs initialized! Data will persist for future sessions.")
