@@ -229,9 +229,10 @@ def download_pdf(pdf_url, save_path, retries=2):
 class PDFIngestionPipeline:
     """Automated pipeline for ingesting drug repurposing PDFs."""
 
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, collection=None):
         self.settings = settings
-        self.collection = init_vector_store(settings)
+        # Reuse an existing collection when provided (prevents multiple Chroma instances with differing settings)
+        self.collection = collection if collection is not None else init_vector_store(settings)
         # Removed: self.gemini_client = get_gemini_client(settings) # No longer needed here
 
     def validate_and_ingest_pdf(self, pdf_path: str, drug_name: str) -> Dict[str, Any]:

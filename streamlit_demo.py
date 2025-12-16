@@ -186,7 +186,7 @@ def process_custom_drug(drug_name):
         progress_bar.progress(10)
 
         settings = get_settings()
-        pipeline = PDFIngestionPipeline(settings)
+        pipeline = PDFIngestionPipeline(settings, collection=get_collection())
 
         progress_bar.progress(20)
 
@@ -406,12 +406,44 @@ def main():
             # Global lock to prevent multiple sessions triggering initialization concurrently
             # (common on Railway: multiple connections + Streamlit reruns)
             init_lock_path = Path("/tmp") / "nuvyra_preload_init.lock"
+            # If the container restarted mid-init, the lock can be left behind.
+            # Treat old locks as stale and auto-clear them.
             if init_lock_path.exists():
-                with init_container:
-                    st.info("🔄 Database initialization is already running in another session. Please wait a moment and refresh.")
-                st.session_state.db_init_checked = True
-                st.session_state.db_init_in_progress = True
-                return
+                stale_seconds = 2 * 60  # 2 minutes (fast recovery for deployments)
+                is_stale = False
+                try:
+                    ts = float(init_lock_path.read_text().strip())
+                    if time.time() - ts > stale_seconds:
+                        is_stale = True
+                except Exception:
+                    # If we can't parse, assume stale
+                    is_stale = True
+
+                if is_stale:
+                    try:
+                        init_lock_path.unlink()
+                        print("ℹ️ Cleared stale init lock file")
+                    except Exception:
+                        pass
+                else:
+                    with init_container:
+                        st.info("🔄 Database initialization is already running in another session. Please wait a moment and refresh.")
+                        # Allow manual recovery if init crashed or got wedged
+                        if st.button("🔓 Force unlock & retry initialization", key="force_unlock_init"):
+                            try:
+                                init_lock_path.unlink()
+                            except Exception:
+                                pass
+                            # Reset flags so init can run again
+                            st.session_state.db_init_checked = False
+                            st.session_state.db_init_in_progress = False
+                            try:
+                                get_collection.clear()
+                            except Exception:
+                                pass
+                            st.rerun()
+                    st.session_state.db_init_in_progress = True
+                    return
             try:
                 init_lock_path.write_text(str(time.time()))
             except Exception:
@@ -513,7 +545,7 @@ def main():
 
                 try:
                     from app.ingestion_pipeline import PDFIngestionPipeline
-                    pipeline = PDFIngestionPipeline(settings)
+                    pipeline = PDFIngestionPipeline(settings, collection=get_collection())
                     preloaded_drugs = ["aspirin", "apomorphine", "insulin"]
 
                     success_count = 0

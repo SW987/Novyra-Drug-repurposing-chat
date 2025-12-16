@@ -11,6 +11,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Disable Chroma telemetry consistently (prevents noisy telemetry errors and settings mismatches)
+os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
+
+# Reuse a single collection per process to avoid "instance already exists with different settings"
+_COLLECTION_CACHE: Dict[str, Collection] = {}
+
 # Removed: from .ingestion import get_gemini_client # This caused circular import
 
 # Custom Embedding Function for Google Gemini
@@ -211,6 +217,16 @@ def init_vector_store(settings: Settings, reset_on_corruption: bool = True) -> C
                 print(f"⚠️ Warning: Could not verify directory writability: {perm_error}. Continuing anyway...")
                 # Don't raise - let ChromaDB handle the actual write error
             
+            # Reuse existing collection if already initialized for this path
+            cached = _COLLECTION_CACHE.get(str(db_path))
+            if cached is not None:
+                try:
+                    cached.get(limit=1)
+                    return cached
+                except Exception:
+                    # If cached collection is no longer valid, drop it and recreate.
+                    _COLLECTION_CACHE.pop(str(db_path), None)
+
             # Check database health BEFORE creating client
             if db_path.exists() and not check_database_health(db_path):
                 print(f"⚠️ Database corruption detected before initialization")
@@ -226,10 +242,18 @@ def init_vector_store(settings: Settings, reset_on_corruption: bool = True) -> C
                 else:
                     raise RuntimeError("Database is corrupted and reset is disabled")
             
-            # Reduce noisy telemetry errors in logs (non-fatal, but confusing)
-            os.environ.setdefault("ANONYMIZED_TELEMETRY", "False")
-
-            client = chromadb.PersistentClient(path=str(db_path))
+            # Create client with explicit, stable settings to avoid "different settings" errors.
+            try:
+                from chromadb.config import Settings as ChromaSettings
+                chroma_settings = ChromaSettings(
+                    anonymized_telemetry=False,
+                    is_persistent=True,
+                    persist_directory=str(db_path),
+                )
+                client = chromadb.PersistentClient(path=str(db_path), settings=chroma_settings)
+            except Exception:
+                # Fallback if chromadb.config.Settings signature differs
+                client = chromadb.PersistentClient(path=str(db_path))
 
             # Define the custom Gemini embedding function for ChromaDB
             gemini_ef = GeminiEmbeddingFunction(
@@ -289,6 +313,7 @@ def init_vector_store(settings: Settings, reset_on_corruption: bool = True) -> C
                 raise ValueError(f"Embedding dimension mismatch! Expected 768, got {len(test_embedding[0])}")
 
             print(f"[OK] Verified: Embedding function produces {len(test_embedding[0])}-dimensional vectors")
+            _COLLECTION_CACHE[str(db_path)] = collection
             return collection
             
         except Exception as e:
