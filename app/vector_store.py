@@ -6,6 +6,7 @@ from .config import Settings
 import chromadb.utils.embedding_functions as embedding_functions
 import google.generativeai as genai # Needed for custom embedding function
 import shutil
+import os
 import logging
 
 logger = logging.getLogger(__name__)
@@ -123,9 +124,13 @@ def reset_chromadb(settings: Settings) -> bool:
                 shutil.rmtree(db_path)
                 print(f"✅ Deleted database directory")
         
-        # Recreate directory
-        db_path.mkdir(parents=True, exist_ok=True)
-        print(f"✅ Created fresh database directory")
+        # Recreate directory with proper permissions
+        db_path.mkdir(parents=True, exist_ok=True, mode=0o755)
+        # Ensure parent directories also have proper permissions
+        parent = db_path.parent
+        if parent.exists():
+            os.chmod(parent, 0o755)
+        print(f"✅ Created fresh database directory with write permissions")
         return True
     except Exception as e:
         print(f"❌ Failed to reset ChromaDB: {e}")
@@ -150,9 +155,21 @@ def init_vector_store(settings: Settings, reset_on_corruption: bool = True) -> C
     
     while retry_count < max_retries:
         try:
-            # Ensure database directory exists
+            # Ensure database directory exists with proper permissions
             db_path = Path(settings.chroma_db_dir)
-            db_path.mkdir(parents=True, exist_ok=True)
+            db_path.mkdir(parents=True, exist_ok=True, mode=0o755)
+            # Ensure parent directories also have proper permissions
+            parent = db_path.parent
+            if parent.exists():
+                os.chmod(parent, 0o755)
+            
+            # Verify directory is writable
+            test_file = db_path / ".write_test"
+            try:
+                test_file.write_text("test")
+                test_file.unlink()
+            except Exception as perm_error:
+                raise RuntimeError(f"Database directory is not writable: {perm_error}. Path: {db_path}")
             
             # Check database health BEFORE creating client
             if db_path.exists() and not check_database_health(db_path):
@@ -325,6 +342,11 @@ def upsert_chunks(
             # Chunks already exist - silently skip (they're already in the database)
             print(f"ℹ️ Chunks already exist in database, skipping duplicate adds")
             return  # Silently skip - no error, chunks are already there
+        elif "readonly" in error_str or "read-only" in error_str or "permission denied" in error_str:
+            # Database is read-only - this is a permissions issue
+            error_msg = f"Database is read-only (permissions issue): {e}"
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
         elif is_chromadb_corrupted(e):
             error_msg = f"ChromaDB corruption detected during write: {e}"
             logger.error(error_msg)
