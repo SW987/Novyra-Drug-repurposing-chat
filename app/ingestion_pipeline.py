@@ -339,12 +339,34 @@ class PDFIngestionPipeline:
 
         # Create output directory
         full_query = f"{drug_name} repurposing"
-        output_folder = Path(self.settings.docs_dir) / full_query
+        configured_docs_dir = Path(self.settings.docs_dir)
+        volume_docs_dir = Path("/data") / "docs"
+        fallback_docs_dir = Path("/tmp") / "nuvyra_docs"
 
-        # Ensure base docs directory exists with proper permissions
-        import os
-        output_folder.parent.mkdir(parents=True, exist_ok=True, mode=0o755)
-        output_folder.mkdir(exist_ok=True, mode=0o755)
+        def _ensure_writable_dir(path: Path) -> bool:
+            try:
+                path.mkdir(parents=True, exist_ok=True, mode=0o755)
+                test_file = path / ".write_test"
+                test_file.write_text("test")
+                try:
+                    test_file.unlink()
+                except (FileNotFoundError, OSError):
+                    pass
+                return True
+            except Exception:
+                return False
+
+        # Prefer persistent volume for PDFs when available.
+        if volume_docs_dir.parent.exists() and _ensure_writable_dir(volume_docs_dir):
+            base_docs_dir = volume_docs_dir
+        elif _ensure_writable_dir(configured_docs_dir):
+            base_docs_dir = configured_docs_dir
+        else:
+            _ensure_writable_dir(fallback_docs_dir)
+            base_docs_dir = fallback_docs_dir
+
+        output_folder = base_docs_dir / full_query
+        output_folder.mkdir(parents=True, exist_ok=True, mode=0o755)
 
         print(f"📁 Saving PDFs to: {output_folder}")
 

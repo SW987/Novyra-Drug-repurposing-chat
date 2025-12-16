@@ -155,15 +155,47 @@ def init_vector_store(settings: Settings, reset_on_corruption: bool = True) -> C
     
     while retry_count < max_retries:
         try:
-            # Ensure database directory exists with proper permissions
-            db_path = Path(settings.chroma_db_dir)
-            db_path.mkdir(parents=True, exist_ok=True, mode=0o755)
-            # Ensure parent directories also have proper permissions
-            parent = db_path.parent
-            if parent.exists():
-                os.chmod(parent, 0o755)
+            # Ensure database directory exists. On some hosts (e.g., Railway), ./data can be read-only.
+            preferred_db_path = Path(settings.chroma_db_dir)
+            # Railway persistent volume is commonly mounted at /data when configured.
+            volume_db_path = Path("/data") / "chroma"
+            fallback_db_path = Path("/tmp") / "nuvyra_chroma"
+
+            def _ensure_writable_dir(path: Path) -> bool:
+                try:
+                    path.mkdir(parents=True, exist_ok=True, mode=0o755)
+                    # Optional: ensure parent is at least traversable
+                    if path.parent.exists():
+                        try:
+                            os.chmod(path.parent, 0o755)
+                        except Exception:
+                            pass
+                    test_file = path / ".write_test"
+                    test_file.write_text("test")
+                    try:
+                        test_file.unlink()
+                    except (FileNotFoundError, OSError):
+                        pass
+                    return True
+                except Exception:
+                    return False
+
+            # Prefer persistent volume when available & writable.
+            if volume_db_path.parent.exists() and _ensure_writable_dir(volume_db_path):
+                db_path = volume_db_path
+                if str(preferred_db_path) != str(volume_db_path):
+                    print(f"✅ Using persistent volume for ChromaDB: {db_path}")
+            elif _ensure_writable_dir(preferred_db_path):
+                db_path = preferred_db_path
+            else:
+                print(f"⚠️ Preferred Chroma path not writable ({preferred_db_path}); falling back to {fallback_db_path}")
+                if not _ensure_writable_dir(fallback_db_path):
+                    raise RuntimeError(
+                        f"No writable Chroma paths available: {volume_db_path}, {preferred_db_path}, {fallback_db_path}"
+                    )
+                db_path = fallback_db_path
             
-            # Verify directory is writable
+            # Verify directory is writable (optional check - don't fail if it doesn't work)
             test_file = db_path / ".write_test"
             try:
                 test_file.write_text("test")
@@ -173,15 +205,19 @@ def init_vector_store(settings: Settings, reset_on_corruption: bool = True) -> C
                     test_file.unlink()
                 except (FileNotFoundError, OSError):
                     pass  # File already deleted or doesn't exist - that's fine
+                print(f"✅ Database directory is writable: {db_path}")
             except (PermissionError, OSError) as perm_error:
-                # Only raise error if write failed (permission issue)
-                raise RuntimeError(f"Database directory is not writable: {perm_error}. Path: {db_path}")
+                # Log warning but don't fail - ChromaDB will fail with a clearer error if it can't write
+                print(f"⚠️ Warning: Could not verify directory writability: {perm_error}. Continuing anyway...")
+                # Don't raise - let ChromaDB handle the actual write error
             
             # Check database health BEFORE creating client
             if db_path.exists() and not check_database_health(db_path):
                 print(f"⚠️ Database corruption detected before initialization")
                 if reset_on_corruption and retry_count == 0:
                     print("🔄 Resetting corrupted database...")
+                    # Reset the actual path we are using
+                    settings.chroma_db_dir = str(db_path)
                     if reset_chromadb(settings):
                         retry_count += 1
                         continue  # Retry after reset
@@ -190,7 +226,7 @@ def init_vector_store(settings: Settings, reset_on_corruption: bool = True) -> C
                 else:
                     raise RuntimeError("Database is corrupted and reset is disabled")
             
-            client = chromadb.PersistentClient(path=settings.chroma_db_dir)
+            client = chromadb.PersistentClient(path=str(db_path))
 
             # Define the custom Gemini embedding function for ChromaDB
             gemini_ef = GeminiEmbeddingFunction(
