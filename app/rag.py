@@ -1,5 +1,6 @@
 import google.generativeai as genai
-from typing import List, Dict, Any, Optional, Union
+from typing import List, Dict, Any, Optional, Union, Set
+from pathlib import Path
 from chromadb import Collection
 
 from .config import Settings
@@ -211,6 +212,7 @@ IMPORTANT INSTRUCTIONS:
 3. If the context seems limited, provide what information is available and note any gaps
 4. For follow-up questions, build upon previous context while adding new details
 5. Be comprehensive but concise - provide detailed explanations within reasonable length
+6. Do not mention the word "context number" but do use that information in your answer like normal.
 
 {history_str}Context:
 {context}
@@ -280,11 +282,89 @@ def extract_sources_from_results(results: QueryResult) -> List[Source]:
             doc_title=metadata["doc_title"],
             chunk_id=chunk_id,
             distance=distance,
-            text_preview=text_preview
+            text_preview=text_preview,
+            file_path=metadata.get("file_path")
         )
         sources.append(source)
 
     return sources
+
+
+DOC_ID_PATH_CACHE: Dict[str, Path] = {}
+
+
+def resolve_doc_path(doc_id: str, file_path: Optional[str], settings: Settings) -> Optional[Path]:
+    """
+    Resolve a doc_id to a real PDF path, using cached results when possible.
+    """
+    cached = DOC_ID_PATH_CACHE.get(doc_id)
+    if cached and cached.exists():
+        return cached
+
+    candidate_paths = []
+
+    if file_path:
+        path = Path(file_path)
+        candidate_paths.append(path)
+        if not path.is_absolute():
+            candidate_paths.append(Path(settings.docs_dir) / path)
+
+    docs_root = Path(settings.docs_dir)
+    if docs_root.exists():
+        for pdf_path in docs_root.rglob("*.pdf"):
+            if doc_id.lower() in pdf_path.stem.lower():
+                candidate_paths.append(pdf_path)
+                break
+
+    for candidate in candidate_paths:
+        if candidate.exists():
+            DOC_ID_PATH_CACHE[doc_id] = candidate.resolve()
+            return DOC_ID_PATH_CACHE[doc_id]
+
+    return None
+
+
+def build_reference_link(doc_id: str, file_path: Optional[str], settings: Settings) -> Optional[str]:
+    """
+    Build a clickable link to the stored PDF, falling back to file:// URIs.
+    """
+    resolved_path = resolve_doc_path(doc_id, file_path, settings)
+    if not resolved_path:
+        return None
+
+    try:
+        return resolved_path.as_uri()
+    except (ValueError, OSError):
+        return None
+
+
+def append_inline_references(answer: str, sources: List[Source], settings: Settings) -> str:
+    """
+    Append a bold reference statement with clickable links at the end of the answer.
+    """
+    if not sources:
+        return answer
+
+    references = []
+    seen_ids: Set[str] = set()
+
+    for source in sources:
+        doc_id = source.doc_id
+        if doc_id in seen_ids:
+            continue
+        seen_ids.add(doc_id)
+
+        link = build_reference_link(doc_id, source.file_path, settings)
+        if link:
+            references.append(f"[{doc_id}]({link})")
+        else:
+            references.append(doc_id)
+
+    if not references:
+        return answer
+
+    references_text = ", ".join(references)
+    return f"{answer.strip()}\n\n**This response was generated from looking at the following papers: {references_text}.**"
 
 
 def chat_with_documents(
@@ -332,11 +412,12 @@ def chat_with_documents(
     enhanced_query = build_enhanced_query(message, conversation_history)
     answer = generate_answer(enhanced_query, context_chunks, client, settings.gemini_chat_model, conversation_history)
 
-    # Extract sources
+    # Extract sources and append inline reference links
     sources = extract_sources_from_results(results)
+    answer_with_references = append_inline_references(answer, sources, settings)
 
     return {
-        "answer": answer,
+        "answer": answer_with_references,
         "sources": sources,
         "session_id": session_id
     }

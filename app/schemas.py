@@ -23,6 +23,7 @@ class Source(BaseModel):
     chunk_id: str = Field(..., description="Unique chunk identifier")
     distance: float = Field(..., description="Similarity distance score")
     text_preview: str = Field(..., description="Preview of the chunk text (first 200 chars)")
+    file_path: Optional[str] = Field(None, description="Path to the original PDF if available")
 
 
 class ChatResponse(BaseModel):
