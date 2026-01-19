@@ -1,5 +1,6 @@
 import google.generativeai as genai
-from typing import List, Dict, Any, Optional, Union
+import re
+from typing import List, Dict, Any, Optional, Union, Set
 from chromadb import Collection
 
 from .config import Settings
@@ -211,6 +212,7 @@ IMPORTANT INSTRUCTIONS:
 3. If the context seems limited, provide what information is available and note any gaps
 4. For follow-up questions, build upon previous context while adding new details
 5. Be comprehensive but concise - provide detailed explanations within reasonable length
+6. Do not mention the word "context number" but do use that information in your answer like normal.
 
 {history_str}Context:
 {context}
@@ -257,6 +259,11 @@ def generate_answer(
     return response.text.strip()
 
 
+def strip_context_labels(answer: str) -> str:
+    """Remove parenthetical context labels like '(Context 3, 8)' if they appear."""
+    return re.sub(r"\s*\(Context[^)]*\)", "", answer)
+
+
 def extract_sources_from_results(results: QueryResult) -> List[Source]:
     """
     Extract source information from query results.
@@ -280,11 +287,41 @@ def extract_sources_from_results(results: QueryResult) -> List[Source]:
             doc_title=metadata["doc_title"],
             chunk_id=chunk_id,
             distance=distance,
-            text_preview=text_preview
+            text_preview=text_preview,
+            file_path=metadata.get("file_path")
         )
         sources.append(source)
 
     return sources
+
+
+def append_inline_references(answer: str, sources: List[Source]) -> str:
+    """
+    Append a reference statement at the end of the answer using unique doc_ids.
+    """
+    if not sources:
+        return answer
+
+    seen_ids: Set[str] = set()
+    ordered_ids = []
+
+    for source in sources:
+        doc_id = source.doc_id
+        if doc_id in seen_ids:
+            continue
+        seen_ids.add(doc_id)
+        ordered_ids.append(doc_id)
+
+    if not ordered_ids:
+        return answer
+
+    references_text = ", ".join(
+        [f"[{doc_id}](https://www.ncbi.nlm.nih.gov/pmc/articles/{doc_id}/)" for doc_id in ordered_ids]
+    )
+    return (
+        f"{answer.strip()}\n\n"
+        f"This response was generated from looking at the following papers: {references_text}."
+    )
 
 
 def chat_with_documents(
@@ -331,12 +368,14 @@ def chat_with_documents(
     # Build enhanced prompt with conversation history
     enhanced_query = build_enhanced_query(message, conversation_history)
     answer = generate_answer(enhanced_query, context_chunks, client, settings.gemini_chat_model, conversation_history)
+    answer = strip_context_labels(answer)
 
     # Extract sources
     sources = extract_sources_from_results(results)
+    answer_with_references = append_inline_references(answer, sources)
 
     return {
-        "answer": answer,
+        "answer": answer_with_references,
         "sources": sources,
         "session_id": session_id
     }

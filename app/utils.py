@@ -26,18 +26,18 @@ def parse_filename(filename: str, drug_folder: str) -> DocumentInfo:
     # Remove file extension
     name = filename.rsplit('.', 1)[0]
 
-    # Split by underscores
-    parts = name.split('_')
-    if len(parts) < 3:
-        raise ValueError(f"Invalid filename format: {filename}. Expected: drug_repurposing_source_id.pdf")
-
-    drug_id = parts[0]
-    # Remove 'repurposing' from the middle
-    if 'repurposing' in parts:
-        repurposing_idx = parts.index('repurposing')
-        source_id = '_'.join(parts[repurposing_idx + 1:])
+    if "_repurposing_" in name:
+        drug_id, source_id = name.split("_repurposing_", 1)
     else:
-        source_id = '_'.join(parts[1:])
+        parts = name.split('_')
+        if len(parts) < 3:
+            raise ValueError(f"Invalid filename format: {filename}. Expected: drug_repurposing_source_id.pdf")
+        drug_id = parts[0]
+        if 'repurposing' in parts:
+            repurposing_idx = parts.index('repurposing')
+            source_id = '_'.join(parts[repurposing_idx + 1:])
+        else:
+            source_id = '_'.join(parts[1:])
 
     # Create human-readable title
     doc_title = f"{drug_id.title()} Repurposing {source_id}"

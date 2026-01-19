@@ -33,10 +33,25 @@ AVAILABLE_DRUGS = {
     "insulin": "Insulin - Metabolic & Research Applications"
 }
 
+def _get_docs_dir(settings: Settings) -> Path:
+    default_dir = Path(settings.docs_dir)
+    testdata_dir = Path("data") / "testdata"
+    if testdata_dir.exists():
+        return testdata_dir
+    return default_dir
+
+
+def _format_drug_label(drug_id: str) -> str:
+    pretty = drug_id.replace("_", " ").strip()
+    if not pretty:
+        pretty = drug_id
+    return f"{pretty.title()} - Downloaded (custom)"
+
+
 def discover_downloaded_drugs(settings: Settings) -> dict:
     """Return mapping of dynamically downloaded drugs found under docs_dir."""
     discovered = {}
-    docs_dir = Path(settings.docs_dir)
+    docs_dir = _get_docs_dir(settings)
     suffix = " repurposing"
     if not docs_dir.exists():
         return discovered
@@ -54,7 +69,7 @@ def discover_downloaded_drugs(settings: Settings) -> dict:
             drug_id = drug_id[: -len(suffix)].strip()
 
         if drug_id not in AVAILABLE_DRUGS:
-            discovered[drug_id] = f"{drug_id.title()} - Downloaded (custom)"
+            discovered[drug_id] = _format_drug_label(drug_id)
 
     return discovered
 
@@ -174,30 +189,6 @@ def make_chat_request(drug_id: str, message: str, session_id: str, conversation_
     except Exception as e:
         return {"error": f"RAG system error: {str(e)}"}
 
-def display_source(source, index: int) -> None:
-    """Display a source with proper formatting"""
-    # Handle both Source objects and dictionaries for compatibility
-    if hasattr(source, 'doc_id'):  # Source object
-        doc_id = source.doc_id
-        doc_title = source.doc_title
-        distance = source.distance
-        text_preview = source.text_preview
-    else:  # Dictionary (legacy support)
-        doc_id = source['doc_id']
-        doc_title = source['doc_title']
-        distance = source['distance']
-        text_preview = source['text_preview']
-
-    # Generate truly unique key using timestamp and random component
-    import time
-    import random
-    unique_key = f"preview_{doc_id}_{index}_{int(time.time()*1000)}_{random.randint(1000,9999)}"
-
-    with st.expander(f"📄 {doc_title} (Distance: {distance:.3f})", expanded=False):
-        st.write(f"**Document ID:** {doc_id}")
-        st.write(f"**Text Preview:**")
-        st.text_area("", text_preview, height=100, disabled=True, key=unique_key)
-
 def display_chat_message(message: Dict[str, Any], is_user: bool = False):
     """Display a chat message with proper formatting"""
     if is_user:
@@ -206,11 +197,6 @@ def display_chat_message(message: Dict[str, Any], is_user: bool = False):
     else:
         with st.chat_message("assistant"):
             st.write(message["answer"])
-
-            if "sources" in message and message["sources"]:
-                st.write("**📚 Sources:**")
-                for i, source in enumerate(message["sources"]):
-                    display_source(source, i)
 
 def main():
     """Main Streamlit application"""
