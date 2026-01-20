@@ -7,8 +7,9 @@ from .config import Settings, get_settings
 from .vector_store import init_vector_store
 from .rag import chat_with_documents
 from .ingestion import ingest_single_document, ingest_pdfs_from_directory
+from .drug_resolver import build_drug_lookup, resolve_drug_id
 from .schemas import (
-    ChatRequest, ChatResponse, IngestRequest, IngestResponse,
+    ChatRequest, ChatByDrugNameRequest, ChatResponse, IngestRequest, IngestResponse,
     HealthResponse, IngestStatusResponse
 )
 import google.generativeai as genai # Import genai for global configuration
@@ -16,20 +17,24 @@ import google.generativeai as genai # Import genai for global configuration
 # Global variables for lifespan management
 collection = None
 settings = None
+drug_ids = set()
+drug_aliases = {}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager for startup and shutdown."""
-    global collection, settings
+    global collection, settings, drug_ids, drug_aliases
 
     # Startup
     settings = get_settings()
     collection = init_vector_store(settings)
     genai.configure(api_key=settings.gemini_api_key) # Configure Gemini client globally
+    drug_ids, drug_aliases = build_drug_lookup(settings.docs_dir)
     print(f"Initialized vector store at {settings.chroma_db_dir}")
     print(f"Collection: {settings.chroma_collection_name}")
     print(f"PDF source directory: {settings.docs_dir}")
+    print(f"Resolved {len(drug_ids)} drug ids for name lookup")
 
     yield
 
@@ -101,6 +106,61 @@ async def chat_endpoint(
     except Exception as e:
         error_msg = str(e)
         # DEMO GUARANTEE: Handle dimension mismatch gracefully
+        if "Embedding dimension" in error_msg and "does not match collection dimensionality" in error_msg:
+            raise HTTPException(
+                status_code=500,
+                detail="System configuration error: Embedding dimensions don't match. Please restart the server."
+            )
+        raise HTTPException(status_code=500, detail=f"Error processing chat request: {error_msg}")
+
+
+@app.post("/chat-by-drug-name", response_model=ChatResponse)
+async def chat_by_drug_name_endpoint(
+    request: ChatByDrugNameRequest,
+    settings: Settings = Depends(get_settings)
+):
+    """
+    Chat with drug repurposing documents using a human-readable drug name.
+    """
+    global collection, drug_ids, drug_aliases
+
+    if collection is None:
+        raise HTTPException(status_code=500, detail="Vector store not initialized")
+
+    try:
+        drug_id = resolve_drug_id(
+            request.drug_name,
+            drug_ids,
+            drug_aliases,
+            allow_fallback=not drug_ids
+        )
+        if not drug_id:
+            raise HTTPException(
+                status_code=404,
+                detail="Unknown drug name. Use /drugs or /chat with a drug_id."
+            )
+
+        conversation_history = None
+        if request.conversation_history:
+            conversation_history = [
+                {"role": msg.role, "content": msg.content}
+                for msg in request.conversation_history
+            ]
+
+        result = chat_with_documents(
+            session_id=request.session_id,
+            drug_id=drug_id,
+            message=request.message,
+            collection=collection,
+            settings=settings,
+            doc_id=request.doc_id,
+            conversation_history=conversation_history
+        )
+
+        return ChatResponse(**result)
+
+    except Exception as e:
+        error_msg = str(e)
         if "Embedding dimension" in error_msg and "does not match collection dimensionality" in error_msg:
             raise HTTPException(
                 status_code=500,

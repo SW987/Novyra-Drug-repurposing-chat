@@ -16,6 +16,15 @@ class ChatRequest(BaseModel):
     conversation_history: Optional[List[Message]] = Field(default_factory=list, description="Previous conversation messages for context")
 
 
+class ChatByDrugNameRequest(BaseModel):
+    """Request model for chat-by-drug-name endpoint."""
+    session_id: str = Field(..., description="Unique session identifier")
+    drug_name: str = Field(..., description="Drug name (human readable)")
+    message: str = Field(..., description="User's chat message")
+    doc_id: Optional[str] = Field(None, description="Optional specific document ID to query")
+    conversation_history: Optional[List[Message]] = Field(default_factory=list, description="Previous conversation messages for context")
+
+
 class Source(BaseModel):
     """Source information for a retrieved chunk."""
     doc_id: str = Field(..., description="Document identifier")
