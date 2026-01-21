@@ -86,6 +86,33 @@ def _append_retrieval_log(csv_path: Path, row: dict[str, str]) -> None:
         writer.writerow(row)
 
 
+def _load_processed_drugs(csv_path: Path) -> set[str]:
+    if not csv_path.exists():
+        return set()
+    with csv_path.open("r", newline="", encoding="utf-8") as handle:
+        reader = csv.DictReader(handle)
+        processed = set()
+        for row in reader:
+            drug = (row.get("drug") or "").strip()
+            if drug:
+                processed.add(drug)
+    return processed
+
+
+def _prompt_resume_choice() -> str:
+    prompt = (
+        "Retrieval log found. Choose an option:\n"
+        "  1) Resume (skip already processed drugs)\n"
+        "  2) Restart (process all drugs)\n"
+        "Enter 1 or 2: "
+    )
+    while True:
+        choice = input(prompt).strip()
+        if choice in {"1", "2"}:
+            return choice
+        print("Please enter 1 or 2.")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Fetch drug repurposing papers from a CSV list.")
     parser.add_argument(
@@ -106,6 +133,12 @@ def main() -> None:
     parser.add_argument("--backoff-seconds", type=float, default=2.0)
     parser.add_argument("--api-retries", type=int, default=3)
     parser.add_argument("--api-retry-delay", type=float, default=10.0)
+    parser.add_argument(
+        "--resume-mode",
+        choices=["ask", "resume", "restart"],
+        default="ask",
+        help="How to handle existing retrieval logs",
+    )
     args = parser.parse_args()
 
     _log("Starting paper fetch job")
@@ -148,6 +181,25 @@ def main() -> None:
 
     no_papers_rows = []
     retrieval_log_path = storage_path / "drug_retrieval_log.csv"
+    if retrieval_log_path.exists():
+        if args.resume_mode == "ask":
+            choice = _prompt_resume_choice()
+        else:
+            choice = "1" if args.resume_mode == "resume" else "2"
+
+        if choice == "1":
+            processed = _load_processed_drugs(retrieval_log_path)
+            if processed:
+                original_count = len(drugs)
+                drugs = [drug for drug in drugs if drug not in processed]
+                skipped = original_count - len(drugs)
+                _log(f"Resuming: skipping {skipped} already-processed drugs")
+            else:
+                _log("Retrieval log was empty; continuing with all drugs")
+        else:
+            _log("Restarting: clearing retrieval log for a fresh run")
+            retrieval_log_path.unlink()
+
     total_drugs = len(drugs)
     for index, drug_name in enumerate(drugs, start=1):
         drug_start = time.time()
