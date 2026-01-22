@@ -73,6 +73,12 @@ Custom storage path:
 python run_ingestion.py --storage-path .\data\testdata
 ```
 
+Multiple storage paths (run jobs in parallel):
+
+```powershell
+python run_ingestion.py --storage-path .\data\run1 --storage-path .\data\run2 --max-workers 2
+```
+
 ## Integrated workflow demo (optional)
 
 ```powershell
