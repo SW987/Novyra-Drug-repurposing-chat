@@ -61,6 +61,12 @@ Custom CSV and output folder:
 python run_fetch_papers.py --csv-path .\data\drug_Data\drugs.csv --storage-path .\data\testdata
 ```
 
+Mirror PDFs to S3 while downloading:
+
+```powershell
+python run_fetch_papers.py --csv-path .\data\drug_Data\drugs.csv --storage-path .\data\testdata --s3-bucket novyra --s3-prefix llm-docs/testdata
+```
+
 ## Ingest downloaded PDFs into the vector DB
 
 ```powershell

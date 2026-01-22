@@ -13,6 +13,11 @@ import requests
 
 from .config import Settings
 
+try:
+    import boto3
+except ImportError:  # pragma: no cover - optional dependency
+    boto3 = None
+
 
 def sanitize_drug_name(drug_name: str) -> str:
     """Normalize a drug name for folder/filename use."""
@@ -246,6 +251,18 @@ def download_pdf(
     return False
 
 
+def _normalize_s3_prefix(prefix: Optional[str]) -> str:
+    if not prefix:
+        return ""
+    return prefix.strip("/")
+
+
+def _build_s3_key(prefix: str, relative_path: Path) -> str:
+    if prefix:
+        return f"{prefix}/{relative_path.as_posix()}"
+    return relative_path.as_posix()
+
+
 class PaperFetchPipeline:
     """Download drug repurposing PDFs without ingestion."""
 
@@ -256,12 +273,43 @@ class PaperFetchPipeline:
         error_delay: float = 5.0,
         max_retries: int = 3,
         backoff_seconds: float = 2.0,
+        s3_bucket: Optional[str] = None,
+        s3_prefix: Optional[str] = None,
+        s3_region: Optional[str] = None,
     ):
         self.settings = settings
         self.request_delay = request_delay
         self.error_delay = error_delay
         self.max_retries = max_retries
         self.backoff_seconds = backoff_seconds
+        self.s3_bucket = s3_bucket
+        self.s3_prefix = _normalize_s3_prefix(s3_prefix)
+        self.s3_client = None
+
+        if self.s3_bucket:
+            if boto3 is None:
+                raise RuntimeError("boto3 is required for S3 uploads. Install boto3 or omit --s3-bucket.")
+            session = boto3.session.Session(region_name=s3_region) if s3_region else boto3.session.Session()
+            self.s3_client = session.client("s3")
+
+    def _upload_to_s3(self, local_path: Path) -> Optional[str]:
+        if not self.s3_client or not self.s3_bucket:
+            return None
+
+        docs_root = Path(self.settings.docs_dir).resolve()
+        try:
+            relative_path = local_path.resolve().relative_to(docs_root)
+        except ValueError:
+            relative_path = Path(local_path.name)
+
+        key = _build_s3_key(self.s3_prefix, relative_path)
+        try:
+            self.s3_client.upload_file(str(local_path), self.s3_bucket, key)
+        except Exception as exc:
+            print(f"[WARN] S3 upload failed for {local_path}: {exc}")
+            return None
+
+        return f"s3://{self.s3_bucket}/{key}"
 
     def fetch_drug_papers(
         self, drug_name: str, max_papers: int = 3, max_search_results: int = 50
@@ -296,6 +344,7 @@ class PaperFetchPipeline:
         downloaded_count = 0
         results = []
         downloaded_files = []
+        downloaded_s3 = []
 
         for pmcid in pmc_ids:
             if downloaded_count >= max_papers:
@@ -317,7 +366,12 @@ class PaperFetchPipeline:
             if download_pdf(pdf_url, str(save_path), retries=self.max_retries, retry_delay=self.backoff_seconds):
                 downloaded_count += 1
                 downloaded_files.append(str(save_path))
-                results.append({"pmcid": pmcid, "downloaded": True, "file_path": str(save_path)})
+                result_entry = {"pmcid": pmcid, "downloaded": True, "file_path": str(save_path)}
+                s3_uri = self._upload_to_s3(save_path)
+                if s3_uri:
+                    downloaded_s3.append(s3_uri)
+                    result_entry["s3_uri"] = s3_uri
+                results.append(result_entry)
                 print(f"[SUCCESS] Downloaded: {save_path}")
             else:
                 results.append({"pmcid": pmcid, "status": "download_failed"})
@@ -340,6 +394,7 @@ class PaperFetchPipeline:
             "downloaded": downloaded_count,
             "output_folder": str(output_folder),
             "downloaded_files": downloaded_files,
+            "downloaded_s3": downloaded_s3,
             "results": results,
         }
 

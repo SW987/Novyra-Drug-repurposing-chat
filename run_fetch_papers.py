@@ -133,6 +133,13 @@ def main() -> None:
     parser.add_argument("--backoff-seconds", type=float, default=2.0)
     parser.add_argument("--api-retries", type=int, default=3)
     parser.add_argument("--api-retry-delay", type=float, default=10.0)
+    parser.add_argument("--s3-bucket", default=None, help="S3 bucket to mirror downloaded PDFs")
+    parser.add_argument(
+        "--s3-prefix",
+        default="",
+        help="S3 prefix to store PDFs (e.g. llm-docs/testdata)",
+    )
+    parser.add_argument("--s3-region", default=None, help="AWS region for S3 (optional)")
     parser.add_argument(
         "--resume-mode",
         choices=["ask", "resume", "restart"],
@@ -162,6 +169,10 @@ def main() -> None:
 
     _log(f"Loaded {len(drugs)} drugs from {csv_path}")
     _log(f"Storing PDFs under {storage_path}")
+    if args.s3_bucket:
+        prefix = args.s3_prefix.strip("/")
+        target = f"s3://{args.s3_bucket}/{prefix}" if prefix else f"s3://{args.s3_bucket}"
+        _log(f"Mirroring PDFs to {target}")
 
     fetcher = PaperFetchPipeline(
         settings,
@@ -169,6 +180,9 @@ def main() -> None:
         error_delay=args.error_delay,
         max_retries=args.max_retries,
         backoff_seconds=args.backoff_seconds,
+        s3_bucket=args.s3_bucket,
+        s3_prefix=args.s3_prefix,
+        s3_region=args.s3_region,
     )
 
     job_start = time.time()
