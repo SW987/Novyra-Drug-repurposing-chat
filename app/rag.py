@@ -302,6 +302,10 @@ def append_inline_references(answer: str, sources: List[Source]) -> str:
     if not sources:
         return answer
 
+    reference_prefix = "This response was generated from looking at the following papers:"
+    if reference_prefix in answer:
+        return answer
+
     seen_ids: Set[str] = set()
     ordered_ids = []
 
