@@ -1,0 +1,90 @@
+drug,MOA,Target,Disease Area,Indication,Vendor,Purity,SMILES,InChIKey,Phase
+AEE788,"EGFR inhibitor, VEGFR inhibitor","EGFR, ERBB2, ERBB4, FGFR2, FGFR3, KDR",,,"Tocris, Tocris, Tocris, Selleck, Selleck",97.1,"CCN1CCN(Cc2ccc(cc2)-c2cc3c(N[C@H](C)c4ccccc4)ncnc3[nH]2)CC1, CCN1CCN(Cc2ccc(cc2)-c2cc3c(N[C@H](C)c4ccccc4)ncnc3[nH]2)CC1, CCN1CCN(Cc2ccc(cc2)-c2cc3c(N[C@H](C)c4ccccc4)ncnc3[nH]2)CC1, CCN1CCN(Cc2ccc(cc2)-c2cc3c(N[C@H](C)c4ccccc4)ncnc3[nH]2)CC1, CCN1CCN(Cc2ccc(cc2)-c2cc3c(N[C@H](C)c4ccccc4)ncnc3[nH]2)CC1","OONFNUWBHFSNBT-HXUWFJFHSA-N, OONFNUWBHFSNBT-HXUWFJFHSA-N, OONFNUWBHFSNBT-HXUWFJFHSA-N, OONFNUWBHFSNBT-HXUWFJFHSA-N, OONFNUWBHFSNBT-HXUWFJFHSA-N",Phase 1/Phase 2
+AEG3482,HSP inducer,,,,"Tocris, Tocris, Tocris",97.67,"NS(=O)(=O)c1nn2cc(nc2s1)-c1ccccc1, NS(=O)(=O)c1nn2cc(nc2s1)-c1ccccc1, NS(=O)(=O)c1nn2cc(nc2s1)-c1ccccc1","MQUYTXDAVCOCMX-UHFFFAOYSA-N, MQUYTXDAVCOCMX-UHFFFAOYSA-N, MQUYTXDAVCOCMX-UHFFFAOYSA-N",Preclinical
+afalanine,dopamine receptor agonist,DRD2,,,"MicroSource, MedChemEx, MedChemEx",98.9,"CC(=O)N[C@@H](Cc1ccccc1)C(O)=O, CC(=O)N[C@@H](Cc1ccccc1)C(O)=O, CC(=O)N[C@@H](Cc1ccccc1)C(O)=O","CBQJSKKFNMDLON-JTQLQIEISA-N, CBQJSKKFNMDLON-JTQLQIEISA-N, CBQJSKKFNMDLON-JTQLQIEISA-N",Phase 3
+afamelanotide,melanocyte-stimulating hormone mimetic,,,,MedChemEx,78.21,CCCC[C@H](NC(=O)[C@H](CO)NC(=O)[C@H](Cc1ccc(O)cc1)NC(=O)[C@H](CO)NC(C)=O)C(=O)N[C@@H](CCC(O)=O)C(=O)N[C@@H](Cc1cnc[nH]1)C(=O)N[C@H](Cc1ccccc1)C(=O)N[C@@H](CCCNC(N)=N)C(=O)N[C@@H](Cc1c[nH]c2ccccc12)C(=O)NCC(=O)N[C@@H](CCCCN)C(=O)N1CCC[C@H]1C(=O)N[C@@H](C(C)C)C(N)=O,UAHFGYDRQSXQEB-LEBBXHLNSA-N,Launched
+afatinib,EGFR inhibitor,"EGFR, ERBB2, ERBB4",oncology,non-small cell lung cancer (NSCLC),"MedChemEx, MedChemEx, MedChemEx, Selleck, Selleck, Selleck, Selleck, Selleck, Selleck, Selleck",99.28,"CN(C)C\C=C\C(=O)Nc1cc2c(Nc3ccc(F)c(Cl)c3)ncnc2cc1O[C@H]1CCOC1, CN(C)C\C=C\C(=O)Nc1cc2c(Nc3ccc(F)c(Cl)c3)ncnc2cc1O[C@H]1CCOC1, CN(C)C\C=C\C(=O)Nc1cc2c(Nc3ccc(F)c(Cl)c3)ncnc2cc1O[C@H]1CCOC1, CN(C)C\C=C\C(=O)Nc1cc2c(Nc3ccc(F)c(Cl)c3)ncnc2cc1O[C@H]1CCOC1, CN(C)C\C=C\C(=O)Nc1cc2c(Nc3ccc(F)c(Cl)c3)ncnc2cc1O[C@H]1CCOC1, CN(C)C\C=C\C(=O)Nc1cc2c(Nc3ccc(F)c(Cl)c3)ncnc2cc1O[C@H]1CCOC1, CN(C)C\C=C\C(=O)Nc1cc2c(Nc3ccc(F)c(Cl)c3)ncnc2cc1O[C@H]1CCOC1, CN(C)C\C=C\C(=O)Nc1cc2c(Nc3ccc(F)c(Cl)c3)ncnc2cc1O[C@H]1CCOC1, CN(C)C\C=C\C(=O)Nc1cc2c(Nc3ccc(F)c(Cl)c3)ncnc2cc1O[C@H]1CCOC1, CN(C)C\C=C\C(=O)Nc1cc2c(Nc3ccc(F)c(Cl)c3)ncnc2cc1O[C@H]1CCOC1","ULXXDDBFHOBEHA-CWDCEQMOSA-N, ULXXDDBFHOBEHA-CWDCEQMOSA-N, ULXXDDBFHOBEHA-CWDCEQMOSA-N, ULXXDDBFHOBEHA-CWDCEQMOSA-N, ULXXDDBFHOBEHA-CWDCEQMOSA-N, ULXXDDBFHOBEHA-CWDCEQMOSA-N, ULXXDDBFHOBEHA-CWDCEQMOSA-N, ULXXDDBFHOBEHA-CWDCEQMOSA-N, ULXXDDBFHOBEHA-CWDCEQMOSA-N, ULXXDDBFHOBEHA-CWDCEQMOSA-N",Launched
+afimoxifene,estrogen receptor antagonist,"ESR1, ESR2, ESRRG, PLD1, PRKCD, PRKCE, PRKCQ, PRKCZ",,,Sigma,47.39,CC\C(=C(/c1ccc(O)cc1)c1ccc(OCCN(C)C)cc1)c1ccccc1,TXUZVZSFRXZGTL-QPLCGJKRSA-N,Phase 2
+afloqualone,acetylcholine receptor antagonist,,neurology/psychiatry,sedative,"AKSci, AKSci, AKSci",97.87,"Cc1ccccc1-n1c(CF)nc2ccc(N)cc2c1=O, Cc1ccccc1-n1c(CF)nc2ccc(N)cc2c1=O, Cc1ccccc1-n1c(CF)nc2ccc(N)cc2c1=O","VDOSWXIDETXFET-UHFFFAOYSA-N, VDOSWXIDETXFET-UHFFFAOYSA-N, VDOSWXIDETXFET-UHFFFAOYSA-N",Launched
+AFN-1252,FABI inhibitor,,,,MedChemEx,95.38,CN(Cc1oc2ccccc2c1C)C(=O)\C=C\c1cnc2NC(=O)CCc2c1,QXTWSUQCXCWEHF-JXMROGBWSA-N,Phase 2
+afobazole,anxiolytic,,neurology/psychiatry,anxiety,"MedChemEx, MedChemEx",98.16,"CCOc1ccc2nc(SCCN3CCOCC3)[nH]c2c1, CCOc1ccc2nc(SCCN3CCOCC3)[nH]c2c1","WWNUCVSRRUDYPP-UHFFFAOYSA-N, WWNUCVSRRUDYPP-UHFFFAOYSA-N",Launched
+AF38469,sortilin inhibitor,SORT1,,,"MedChemEx, MedChemEx, MedChemEx, MedChemEx",96.02,"Cc1cccc(NC(=O)c2ccc(cc2C(O)=O)C(F)(F)F)n1, Cc1cccc(NC(=O)c2ccc(cc2C(O)=O)C(F)(F)F)n1, Cc1cccc(NC(=O)c2ccc(cc2C(O)=O)C(F)(F)F)n1, Cc1cccc(NC(=O)c2ccc(cc2C(O)=O)C(F)(F)F)n1","JWCUSQCZMQIBMR-UHFFFAOYSA-N, JWCUSQCZMQIBMR-UHFFFAOYSA-N, JWCUSQCZMQIBMR-UHFFFAOYSA-N, JWCUSQCZMQIBMR-UHFFFAOYSA-N",Preclinical
+AG-1024,insulin growth factor receptor inhibitor,IGF1R,,,"Selleck, Selleck",91.46,"CC(C)(C)c1cc(C=C(C#N)C#N)cc(Br)c1O, CC(C)(C)c1cc(C=C(C#N)C#N)cc(Br)c1O","ABBADGFSRBWENF-UHFFFAOYSA-N, ABBADGFSRBWENF-UHFFFAOYSA-N",Preclinical
+AG-14361,PARP inhibitor,PARP1,,,"Selleck, Selleck, Selleck, Selleck, Selleck, Selleck, Selleck, Selleck, Selleck, Selleck, Selleck",95.36,"CN(C)Cc1ccc(cc1)-c1nc2cccc3C(=O)NCCn1c23, CN(C)Cc1ccc(cc1)-c1nc2cccc3C(=O)NCCn1c23, CN(C)Cc1ccc(cc1)-c1nc2cccc3C(=O)NCCn1c23, CN(C)Cc1ccc(cc1)-c1nc2cccc3C(=O)NCCn1c23, CN(C)Cc1ccc(cc1)-c1nc2cccc3C(=O)NCCn1c23, CN(C)Cc1ccc(cc1)-c1nc2cccc3C(=O)NCCn1c23, CN(C)Cc1ccc(cc1)-c1nc2cccc3C(=O)NCCn1c23, CN(C)Cc1ccc(cc1)-c1nc2cccc3C(=O)NCCn1c23, CN(C)Cc1ccc(cc1)-c1nc2cccc3C(=O)NCCn1c23, CN(C)Cc1ccc(cc1)-c1nc2cccc3C(=O)NCCn1c23, CN(C)Cc1ccc(cc1)-c1nc2cccc3C(=O)NCCn1c23","SEKJSSBJKFLZIT-UHFFFAOYSA-N, SEKJSSBJKFLZIT-UHFFFAOYSA-N, SEKJSSBJKFLZIT-UHFFFAOYSA-N, SEKJSSBJKFLZIT-UHFFFAOYSA-N, SEKJSSBJKFLZIT-UHFFFAOYSA-N, SEKJSSBJKFLZIT-UHFFFAOYSA-N, SEKJSSBJKFLZIT-UHFFFAOYSA-N, SEKJSSBJKFLZIT-UHFFFAOYSA-N, SEKJSSBJKFLZIT-UHFFFAOYSA-N, SEKJSSBJKFLZIT-UHFFFAOYSA-N, SEKJSSBJKFLZIT-UHFFFAOYSA-N",Preclinical
+AG-490,"EGFR inhibitor, JAK inhibitor","EGFR, JAK2, JAK3",,,"Selleck, Tocris, Selleck, Tocris",92.57,"Oc1ccc(\C=C(/C#N)C(=O)NCc2ccccc2)cc1O, Oc1ccc(\C=C(/C#N)C(=O)NCc2ccccc2)cc1O, Oc1ccc(\C=C(/C#N)C(=O)NCc2ccccc2)cc1O, Oc1ccc(\C=C(/C#N)C(=O)NCc2ccccc2)cc1O","TUCIOBMMDDOEMM-RIYZIHGNSA-N, TUCIOBMMDDOEMM-RIYZIHGNSA-N, TUCIOBMMDDOEMM-RIYZIHGNSA-N, TUCIOBMMDDOEMM-RIYZIHGNSA-N",Preclinical
+AG-555,tyrosine kinase inhibitor,CDK2,,,Tocris,58.16,Oc1ccc(\C=C(/C#N)C(=O)NCCCc2ccccc2)cc1O,GSQOBTOAOGXIFL-LFIBNONCSA-N,Preclinical
+AG-556,tyrosine kinase inhibitor,,,,"Tocris, Tocris",93.77,"Oc1ccc(\C=C(/C#N)C(=O)NCCCCc2ccccc2)cc1O, Oc1ccc(\C=C(/C#N)C(=O)NCCCCc2ccccc2)cc1O","GWCNJMUSWLTSCW-SFQUDFHCSA-N, GWCNJMUSWLTSCW-SFQUDFHCSA-N",Preclinical
+AGI-5198,isocitrate dehydrogenase inhibitor,IDH1,,,"Selleck, Selleck, Selleck",98.97,"Cc1nccn1CC(=O)N([C@@H](C(=O)NC1CCCCC1)c1ccccc1C)c1cccc(F)c1 |&1:10,r|, Cc1nccn1CC(=O)N([C@@H](C(=O)NC1CCCCC1)c1ccccc1C)c1cccc(F)c1 |&1:10,r|, Cc1nccn1CC(=O)N([C@@H](C(=O)NC1CCCCC1)c1ccccc1C)c1cccc(F)c1 |&1:10,r|","FNYGWXSATBUBER-AREMUKBSSA-N, FNYGWXSATBUBER-AREMUKBSSA-N, FNYGWXSATBUBER-AREMUKBSSA-N",Preclinical
+AGI-6780,isocitrate dehydrogenase inhibitor,IDH2,,,"Selleck, Selleck, MedChemEx",96.02,"FC(F)(F)c1cccc(NC(=O)Nc2cc(ccc2-c2ccsc2)S(=O)(=O)NC2CC2)c1, FC(F)(F)c1cccc(NC(=O)Nc2cc(ccc2-c2ccsc2)S(=O)(=O)NC2CC2)c1, FC(F)(F)c1cccc(NC(=O)Nc2cc(ccc2-c2ccsc2)S(=O)(=O)NC2CC2)c1","CCAWRGNYALGPQH-UHFFFAOYSA-N, CCAWRGNYALGPQH-UHFFFAOYSA-N, CCAWRGNYALGPQH-UHFFFAOYSA-N",Preclinical
+AGM-1470,cell cycle inhibitor,METAP2,,,Enzo,58.76,"CO[C@@H]1[C@@H](CC[C@]2(CO2)[C@@H]1[C@@]1(C)O[C@@H]1CC=C(C)C)OC(=O)NC(=O)CCl |a:2,3,6,10,13,&1:9|",MSHZHSPISPJWHW-FRDQJGBZSA-N,Phase 2
+agmatine,nitric oxide synthase inhibitor,"ADRA2C, ASIC3, CACNA1B, CHRNA1, GRIN1, KCNJ1, NISCH",,,"Enzo, Enzo",100,"NCCCCNC(N)=N, NCCCCNC(N)=N","QYPPJABKJHAVHS-UHFFFAOYSA-N, QYPPJABKJHAVHS-UHFFFAOYSA-N",Phase 3
+AGN-192403,imidazoline receptor ligand,NISCH,,,"Tocris, Tocris, Tocris",100,"CC(C)[C@@H]1[C@H]2CC[C@@H](C2)[C@H]1N |a:3,9,&1:4,&2:7|, CC(C)[C@@H]1[C@H]2CC[C@@H](C2)[C@H]1N |a:3,9,&1:4,&2:7|, CC(C)[C@@H]1[C@H]2CC[C@@H](C2)[C@H]1N |a:3,9,&1:4,&2:7|","SHXVJSFOJHMEEQ-AXTSPUMRSA-N, SHXVJSFOJHMEEQ-AXTSPUMRSA-N, SHXVJSFOJHMEEQ-AXTSPUMRSA-N",Preclinical
+AGN-194310,retinoid receptor antagonist,"RXRA, RXRB, RXRG",,,"MedChemEx, MedChemEx, MedChemEx",97.17,"CCc1ccc(cc1)C1=CC(C)(C)Sc2ccc(cc12)C#Cc1ccc(cc1)C(O)=O |t:9|, CCc1ccc(cc1)C1=CC(C)(C)Sc2ccc(cc12)C#Cc1ccc(cc1)C(O)=O |t:9|, CCc1ccc(cc1)C1=CC(C)(C)Sc2ccc(cc12)C#Cc1ccc(cc1)C(O)=O |t:9|","LHUPKWKWYWOMSK-UHFFFAOYSA-N, LHUPKWKWYWOMSK-UHFFFAOYSA-N, LHUPKWKWYWOMSK-UHFFFAOYSA-N",Phase 3
+AGN-195183,retinoid receptor agonist,RARA,,,"MedChemEx, MedChemEx",94.51,"CC1(C)CCC(C)(C)c2c(Cl)c(O)c(cc12)C(=O)Nc1cc(F)c(C(O)=O)c(F)c1, CC1(C)CCC(C)(C)c2c(Cl)c(O)c(cc12)C(=O)Nc1cc(F)c(C(O)=O)c(F)c1","PNAWUIKCVQSLFG-UHFFFAOYSA-N, PNAWUIKCVQSLFG-UHFFFAOYSA-N",Phase 1/Phase 2
+agomelatine,"melatonin receptor agonist, serotonin receptor antagonist","HTR2A, HTR2B, HTR2C, MTNR1A, MTNR1B",neurology/psychiatry,depression,"Selleck, MedChemEx, MedChemEx",98.23,"COc1ccc2cccc(CCNC(C)=O)c2c1, COc1ccc2cccc(CCNC(C)=O)c2c1, COc1ccc2cccc(CCNC(C)=O)c2c1","YJYPHIXNFHFHND-UHFFFAOYSA-N, YJYPHIXNFHFHND-UHFFFAOYSA-N, YJYPHIXNFHFHND-UHFFFAOYSA-N",Launched
+AGP-103,membrane permeability inhibitor,,,,"Sigma, Enzo, Enzo",100,"CCCCCCCCCCCCCCCCCCCCCC(O)=O, CCCCCCCCCCCCCCCCCCCCCC(O)=O, CCCCCCCCCCCCCCCCCCCCCC(O)=O","UKMSUNONTOPOIO-UHFFFAOYSA-N, UKMSUNONTOPOIO-UHFFFAOYSA-N, UKMSUNONTOPOIO-UHFFFAOYSA-N",Launched
+AH-7614,free fatty acid receptor antagonist,FFAR4,,,"Tocris, Tocris, Tocris",97.69,"Cc1ccc(cc1)S(=O)(=O)NC1c2ccccc2Oc2ccccc12, Cc1ccc(cc1)S(=O)(=O)NC1c2ccccc2Oc2ccccc12, Cc1ccc(cc1)S(=O)(=O)NC1c2ccccc2Oc2ccccc12","OZCQEUZTOAAWDK-UHFFFAOYSA-N, OZCQEUZTOAAWDK-UHFFFAOYSA-N, OZCQEUZTOAAWDK-UHFFFAOYSA-N",Preclinical
+AH11110,adrenergic receptor ligand,ADRA1B,,,"Tocris, Tocris, Tocris",98.96,"O[C@@H](COc1ccccc1-c1ccccc1)CC(=N)N1CCCCC1 |&1:1|, O[C@@H](COc1ccccc1-c1ccccc1)CC(=N)N1CCCCC1 |&1:1|, O[C@@H](COc1ccccc1-c1ccccc1)CC(=N)N1CCCCC1 |&1:1|","HSVZQQYIMKLNLN-GOSISDBHSA-N, HSVZQQYIMKLNLN-GOSISDBHSA-N, HSVZQQYIMKLNLN-GOSISDBHSA-N",Preclinical
+AH6809,prostanoid receptor antagonist,"PTGDR, PTGER1, PTGER2, PTGER3",,,"Tocris, Tocris, Tocris",96.06,"CC(C)Oc1ccc2c(c1)oc1ccc(cc1c2=O)C(O)=O, CC(C)Oc1ccc2c(c1)oc1ccc(cc1c2=O)C(O)=O, CC(C)Oc1ccc2c(c1)oc1ccc(cc1c2=O)C(O)=O","AQFFXPQJLZFABJ-UHFFFAOYSA-N, AQFFXPQJLZFABJ-UHFFFAOYSA-N, AQFFXPQJLZFABJ-UHFFFAOYSA-N",Preclinical
+AI-10-49,core binding factor inhibitor,CBFB,,,MedChemEx,92.82,FC(F)(F)Oc1ccc2nc([nH]c2c1)-c1ccc(OCCOCCOc2ccc(nc2)-c2nc3ccc(OC(F)(F)F)cc3[nH]2)cn1,WJBSSBFGPKTMQQ-UHFFFAOYSA-N,Preclinical
+AIM-100,tyrosine kinase inhibitor,TNK2,,,"Tocris, Tocris",98.41,"C(Nc1ncnc2oc(c(-c3ccccc3)c12)-c1ccccc1)[C@@H]1CCCO1, C(Nc1ncnc2oc(c(-c3ccccc3)c12)-c1ccccc1)[C@@H]1CCCO1","XNFHHOXCDUAYSR-SFHVURJKSA-N, XNFHHOXCDUAYSR-SFHVURJKSA-N",Preclinical
+ajmaline,sodium channel blocker,,cardiology,Wolff-Parkinson-White Syndrome (WPW),"Toronto, Toronto",93.74,"[H][C@]12C[C@]34[C@H](O)[C@@]1([H])[C@]1([H])C[C@]([H])(N2[C@H](O)[C@@]1([H])CC)[C@]3([H])N(C)c1ccccc41, [H][C@]12C[C@]34[C@H](O)[C@@]1([H])[C@]1([H])C[C@]([H])(N2[C@H](O)[C@@]1([H])CC)[C@]3([H])N(C)c1ccccc41","CJDRUOGAGYHKKD-BDXZSHBPSA-N, CJDRUOGAGYHKKD-BDXZSHBPSA-N",Launched
+AJ76-(+),dopamine receptor antagonist,"DRD2, DRD3, DRD4",,,"Tocris, Tocris",94.73,"CCCN[C@@H]1CCc2c(OC)cccc2[C@@H]1C, CCCN[C@@H]1CCc2c(OC)cccc2[C@@H]1C","YGHLYBIUVOLKCV-SMDDNHRTSA-N, YGHLYBIUVOLKCV-SMDDNHRTSA-N",Preclinical
+AK-7,SIRT inhibitor,SIRT2,,,"Tocris, Tocris",96.33,"Brc1cccc(NC(=O)c2cccc(c2)S(=O)(=O)N2CCCCCC2)c1, Brc1cccc(NC(=O)c2cccc(c2)S(=O)(=O)N2CCCCCC2)c1","IYAYHZZWYNXHEQ-UHFFFAOYSA-N, IYAYHZZWYNXHEQ-UHFFFAOYSA-N",Preclinical
+AKBA,lipoxygenase inhibitor,ALOX5,,,"MedChemEx, MedChemEx, MedChemEx, Toronto",90.39,"C[C@@H]1CC[C@]2(C)CC[C@]3(C)C(=CC(=O)[C@@H]4[C@@]5(C)CC[C@@H](OC(C)=O)[C@@](C)([C@@H]5CC[C@@]34C)C(O)=O)[C@@H]2[C@H]1C |c:10|, C[C@@H]1CC[C@]2(C)CC[C@]3(C)C(=CC(=O)[C@@H]4[C@@]5(C)CC[C@@H](OC(C)=O)[C@@](C)([C@@H]5CC[C@@]34C)C(O)=O)[C@@H]2[C@H]1C |c:10|, C[C@@H]1CC[C@]2(C)CC[C@]3(C)C(=CC(=O)[C@@H]4[C@@]5(C)CC[C@@H](OC(C)=O)[C@@](C)([C@@H]5CC[C@@]34C)C(O)=O)[C@@H]2[C@H]1C |c:10|, C[C@@H]1CC[C@]2(C)CC[C@]3(C)C(=CC(=O)[C@@H]4[C@@]5(C)CC[C@@H](OC(C)=O)[C@@](C)([C@@H]5CC[C@@]34C)C(O)=O)[C@@H]2[C@H]1C |c:10|","HMMGKOVEOFBCAU-BCDBGHSCSA-N, HMMGKOVEOFBCAU-BCDBGHSCSA-N, HMMGKOVEOFBCAU-BCDBGHSCSA-N, HMMGKOVEOFBCAU-BCDBGHSCSA-N",Phase 3
+aklomide,,,infectious disease,coccidiosis,MicroSource,98.9,NC(=O)c1ccc(cc1Cl)[N+]([O-])=O,GFGSZUNNBQXGMK-UHFFFAOYSA-N,Launched
+AL-8697,p38 MAPK inhibitor,MAPK14,,,"Tocris, Tocris",99.77,"Cc1c(F)cc(cc1-c1c(F)cn2c(nnc2c1F)C(C)(C)C)C(=O)NC1CC1, Cc1c(F)cc(cc1-c1c(F)cn2c(nnc2c1F)C(C)(C)C)C(=O)NC1CC1","ZVBTZTQYHOXIBC-UHFFFAOYSA-N, ZVBTZTQYHOXIBC-UHFFFAOYSA-N",Preclinical
+alacepril,angiotensin converting enzyme inhibitor,ACE,cardiology,hypertension,"Key, Key, Key, Key",98.51,"C[C@H](CSC(C)=O)C(=O)N1CCC[C@H]1C(=O)N[C@@H](Cc1ccccc1)C(O)=O, C[C@H](CSC(C)=O)C(=O)N1CCC[C@H]1C(=O)N[C@@H](Cc1ccccc1)C(O)=O, C[C@H](CSC(C)=O)C(=O)N1CCC[C@H]1C(=O)N[C@@H](Cc1ccccc1)C(O)=O, C[C@H](CSC(C)=O)C(=O)N1CCC[C@H]1C(=O)N[C@@H](Cc1ccccc1)C(O)=O","FHHHOYXPRDYHEZ-COXVUDFISA-N, FHHHOYXPRDYHEZ-COXVUDFISA-N, FHHHOYXPRDYHEZ-COXVUDFISA-N, FHHHOYXPRDYHEZ-COXVUDFISA-N",Launched
+alafosfalin,bacterial cell wall synthesis inhibitor,,,,"Sigma, Sigma",93.9,"C[C@H](N)C(=O)N[C@@H](C)P(O)(O)=O, C[C@H](N)C(=O)N[C@@H](C)P(O)(O)=O","BHAYDBSYOBONRV-IUYQGCFVSA-N, BHAYDBSYOBONRV-IUYQGCFVSA-N",Phase 1
+alagebrium,glycosylation inhibitor,,,,OxChem,87.59,Cc1sc[n+](CC(=O)c2ccccc2)c1C,LYLFQLCLUXOFOL-UHFFFAOYSA-N,Phase 2/Phase 3
+alanine,,,,,Sigma,69.19,"C[C@@H](N)C(O)=O |&1:1,r|",QNAYBMKLOCPYGJ-UWTATZPHSA-N,Launched
+alanosine,antimetabolite,,,,Cayman,0,N[C@@H](CN(O)[N+][O-])C(O)=O,MLFKVJCWGUZWNV-REOHCLBHSA-N,Phase 2
+alantolactone,"apoptosis stimulant, STAT inhibitor",STAT3,,,"Tocris, Tocris",91.14,"C[C@H]1CCC[C@]2(C)C[C@H]3OC(=O)C(=C)[C@H]3C=C12 |t:16|, C[C@H]1CCC[C@]2(C)C[C@H]3OC(=O)C(=C)[C@H]3C=C12 |t:16|","PXOYOCNNSUAQNS-AGNJHWRGSA-N, PXOYOCNNSUAQNS-AGNJHWRGSA-N",Preclinical
+alaproclate,serotonin receptor antagonist,SLC6A4,,,AlfaAesar,95.15,C[C@@H](N)C(=O)OC(C)(C)Cc1ccc(Cl)cc1 |&1:1|,FZSPJBYOKQPKCD-SECBINFHSA-N,Phase 2
+alarelin,gonadotropin releasing factor hormone receptor antagonist,GNRH1,,,"MedChemEx, MedChemEx",96.08,"CCNC(=O)[C@@H]1CCCN1C(=O)[C@H](CCCNC(N)=N)NC(=O)[C@H](CC(C)C)NC(=O)[C@@H](C)NC(=O)[C@H](Cc1ccc(O)cc1)NC(=O)[C@H](CO)NC(=O)[C@H](Cc1c[nH]c2ccccc12)NC(=O)[C@H](Cc1cnc[nH]1)NC(=O)[C@@H]1CCC(=O)N1, CCNC(=O)[C@@H]1CCCN1C(=O)[C@H](CCCNC(N)=N)NC(=O)[C@H](CC(C)C)NC(=O)[C@@H](C)NC(=O)[C@H](Cc1ccc(O)cc1)NC(=O)[C@H](CO)NC(=O)[C@H](Cc1c[nH]c2ccccc12)NC(=O)[C@H](Cc1cnc[nH]1)NC(=O)[C@@H]1CCC(=O)N1","QLGKMLRGKPKGKI-QWQCQAQZSA-N, QLGKMLRGKPKGKI-QWQCQAQZSA-N",Launched
+albendazole,tubulin polymerization inhibitor,"TUBA1A, TUBB, TUBB4B",infectious disease,"cystic hydatid disease, parenchymal neurocysticercosis","MedChemEx, MicroSource, Selleck, Selleck, Selleck",94.73,"CCCSc1ccc2nc(NC(=O)OC)[nH]c2c1, CCCSc1ccc2nc(NC(=O)OC)[nH]c2c1, CCCSc1ccc2nc(NC(=O)OC)[nH]c2c1, CCCSc1ccc2nc(NC(=O)OC)[nH]c2c1, CCCSc1ccc2nc(NC(=O)OC)[nH]c2c1","HXHWSAZORRCQMX-UHFFFAOYSA-N, HXHWSAZORRCQMX-UHFFFAOYSA-N, HXHWSAZORRCQMX-UHFFFAOYSA-N, HXHWSAZORRCQMX-UHFFFAOYSA-N, HXHWSAZORRCQMX-UHFFFAOYSA-N",Launched
+albendazole-oxide,anthelmintic agent,,infectious disease,"cystic hydatid disease, parenchymal neurocysticercosis","Selleck, Selleck",97.13,"CCC[S@@](=O)c1ccc2nc(NC(=O)OC)[nH]c2c1 |r|, CCC[S@@](=O)c1ccc2nc(NC(=O)OC)[nH]c2c1 |r|","VXTGHWHFYNYFFV-LJQANCHMSA-N, VXTGHWHFYNYFFV-LJQANCHMSA-N",Launched
+albuterol,adrenergic receptor agonist,ADRB2,pulmonary,asthma,"Tocris, Selleck",90.96,"CC(C)(C)NC[C@@H](O)c1ccc(O)c(CO)c1 |&1:6|, CC(C)(C)NC[C@@H](O)c1ccc(O)c(CO)c1 |&1:6|","NDAUXUAQIAJITI-GFCCVEGCSA-N, NDAUXUAQIAJITI-GFCCVEGCSA-N",Launched
+alcaftadine,histamine receptor antagonist,HRH1,allergy,allergic conjunctivitis,MedChemEx,99.28,CN1CCC(CC1)=C1c2ncc(C=O)n2CCc2ccccc12,MWTBKTRZPHJQLH-UHFFFAOYSA-N,Launched
+alclofenac,cyclooxygenase inhibitor,PTGS1,rheumatology,rheumatoid arthritis,"Sigma, Sigma",96.73,"OC(=O)Cc1ccc(OCC=C)c(Cl)c1, OC(=O)Cc1ccc(OCC=C)c(Cl)c1","ARHWPKZXBHOEEE-UHFFFAOYSA-N, ARHWPKZXBHOEEE-UHFFFAOYSA-N",Launched
+Cisplatin,,,,,,,,,
+Carboplatin,,,,,,,,,
+Oxaliplatin,,,,,,,,,
+Doxorubicin,,,,,,,,,
+Epirubicin,,,,,,,,,
+Paclitaxel,,,,,,,,,
+Docetaxel,,,,,,,,,
+Vincristine,,,,,,,,,
+Vinblastine,,,,,,,,,
+Etoposide,,,,,,,,,
+Cyclophosphamide,,,,,,,,,
+Ifosfamide,,,,,,,,,
+Methotrexate,,,,,,,,,
+5-Fluorouracil,,,,,,,,,
+Capecitabine,,,,,,,,,
+Gemcitabine,,,,,,,,,
+Irinotecan,,,,,,,,,
+Topotecan,,,,,,,,,
+Bleomycin,,,,,,,,,
+Mitomycin C,,,,,,,,,
+Imatinib,,,,,,,,,
+Dasatinib,,,,,,,,,
+Nilotinib,,,,,,,,,
+Erlotinib,,,,,,,,,
+Gefitinib,,,,,,,,,
+Osimertinib,,,,,,,,,
+Trastuzumab,,,,,,,,,
+Pertuzumab,,,,,,,,,
+Bevacizumab,,,,,,,,,
+Rituximab,,,,,,,,,
+Pembrolizumab,,,,,,,,,
+Nivolumab,,,,,,,,,
+Atezolizumab,,,,,,,,,
+Ipilimumab,,,,,,,,,
+Tamoxifen,,,,,,,,,
+Letrozole,,,,,,,,,
+Anastrozole,,,,,,,,,
+Fulvestrant,,,,,,,,,
+Bicalutamide,,,,,,,,,
+Abiraterone,,,,,,,,,
+Enzalutamide,,,,,,,,,
