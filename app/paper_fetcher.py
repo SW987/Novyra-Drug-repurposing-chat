@@ -1,4 +1,5 @@
 import gzip
+import io
 import os
 import re
 import shutil
@@ -43,6 +44,26 @@ def is_valid_pdf(file_path: str) -> bool:
 
         has_valid_header = header == b"%PDF-"
         has_valid_footer = b"%%EOF" in footer
+
+        if not has_valid_footer:
+            print("[WARN] Missing EOF marker")
+            return False
+
+        return has_valid_header
+    except Exception as e:
+        print(f"[ERROR] Validation failed: {e}")
+        return False
+
+
+def is_valid_pdf_bytes(data: bytes) -> bool:
+    """Return True if bytes look like a valid PDF and size > 5KB."""
+    try:
+        if len(data) < 5000:
+            print(f"[WARN] File too small ({len(data)} bytes)")
+            return False
+
+        has_valid_header = data[:5] == b"%PDF-"
+        has_valid_footer = b"%%EOF" in data[-10:]
 
         if not has_valid_footer:
             print("[WARN] Missing EOF marker")
@@ -150,6 +171,28 @@ def download_stream(url: str, destination: str, timeout: int = 25) -> None:
                         f.write(chunk)
 
 
+def download_stream_bytes(url: str, timeout: int = 25) -> Optional[bytes]:
+    """Download binary content into memory for HTTP/FTP."""
+    try:
+        if url.startswith("ftp://"):
+            with urllib.request.urlopen(url, timeout=timeout) as response:
+                return response.read()
+
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+        with requests.get(url, stream=True, timeout=timeout, headers=headers) as r:
+            r.raise_for_status()
+            chunks = []
+            for chunk in r.iter_content(chunk_size=8192):
+                if chunk:
+                    chunks.append(chunk)
+            return b"".join(chunks)
+    except Exception as exc:
+        print(f"[ERROR] Download failed: {exc}")
+        return None
+
+
 def extract_pdf_from_tar_gz(tar_path: str, output_path: str) -> bool:
     try:
         with tarfile.open(tar_path, "r:gz") as tar:
@@ -163,13 +206,26 @@ def extract_pdf_from_tar_gz(tar_path: str, output_path: str) -> bool:
     return False
 
 
+def extract_pdf_from_tar_bytes(data: bytes) -> Optional[bytes]:
+    try:
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:*") as tar:
+            for member in tar.getmembers():
+                if member.name.endswith(".pdf"):
+                    extracted = tar.extractfile(member)
+                    if extracted:
+                        return extracted.read()
+    except Exception as e:
+        print(f"[ERROR] TAR extraction failed: {e}")
+    return None
+
+
 def safe_gunzip(data: bytes) -> Optional[bytes]:
     """Safely decompress gzip data with fallback."""
     try:
         return gzip.decompress(data)
     except Exception as e:
         print(f"[WARN] GZIP decompress failed: {e}")
-        return None
+    return None
 
 
 def download_pdf(
@@ -251,6 +307,65 @@ def download_pdf(
     return False
 
 
+def download_pdf_bytes(
+    pdf_url: str,
+    retries: int = 3,
+    retry_delay: float = 2.0,
+) -> Optional[bytes]:
+    for attempt in range(1, retries + 1):
+        try:
+            print(f"[INFO] Attempt {attempt}: {pdf_url}")
+
+            raw = download_stream_bytes(pdf_url)
+            if not raw or len(raw) < 100:
+                print("[ERROR] Downloaded file too small")
+                raise RuntimeError("download_too_small")
+
+            if pdf_url.endswith(".tar.gz") or pdf_url.endswith(".tgz"):
+                print("[INFO] Detected TAR.GZ archive. Extracting...")
+                extracted = extract_pdf_from_tar_bytes(raw)
+                if extracted and is_valid_pdf_bytes(extracted):
+                    print("[SUCCESS] Extracted valid PDF")
+                    return extracted
+                print("[SKIP] No valid PDF inside TAR.GZ")
+                return None
+
+            if raw[:2] == b"\x1f\x8b":
+                print("[INFO] Detected gzipped content, decompressing")
+                decompressed = safe_gunzip(raw)
+                if not decompressed:
+                    print("[SKIP] GZIP decompression failed")
+                    return None
+
+                extracted = extract_pdf_from_tar_bytes(decompressed)
+                if extracted:
+                    raw = extracted
+                else:
+                    raw = decompressed
+
+            if is_valid_pdf_bytes(raw):
+                print("[SUCCESS] Valid PDF downloaded (bytes)")
+                return raw
+
+            print("[SKIP] Invalid PDF content")
+            return None
+
+        except requests.exceptions.Timeout:
+            print("[ERROR] Download timeout")
+        except requests.exceptions.ConnectionError:
+            print("[ERROR] Connection error")
+        except Exception as e:
+            print(f"[ERROR] Download failed: {e}")
+
+        if attempt < retries:
+            wait_seconds = retry_delay * attempt
+            print(f"[INFO] Retrying in {wait_seconds:.1f} seconds...")
+            time.sleep(wait_seconds)
+
+    print("[SKIP] Invalid OA PDF link")
+    return None
+
+
 def _normalize_s3_prefix(prefix: Optional[str]) -> str:
     if not prefix:
         return ""
@@ -276,6 +391,7 @@ class PaperFetchPipeline:
         s3_bucket: Optional[str] = None,
         s3_prefix: Optional[str] = None,
         s3_region: Optional[str] = None,
+        store_local: bool = True,
     ):
         self.settings = settings
         self.request_delay = request_delay
@@ -285,6 +401,7 @@ class PaperFetchPipeline:
         self.s3_bucket = s3_bucket
         self.s3_prefix = _normalize_s3_prefix(s3_prefix)
         self.s3_client = None
+        self.store_local = store_local
 
         if self.s3_bucket:
             if boto3 is None:
@@ -307,6 +424,25 @@ class PaperFetchPipeline:
             self.s3_client.upload_file(str(local_path), self.s3_bucket, key)
         except Exception as exc:
             print(f"[WARN] S3 upload failed for {local_path}: {exc}")
+            return None
+
+        return f"s3://{self.s3_bucket}/{key}"
+
+    def _upload_bytes_to_s3(self, data: bytes, relative_path: Path) -> Optional[str]:
+        if not self.s3_client or not self.s3_bucket:
+            return None
+
+        key = _build_s3_key(self.s3_prefix, relative_path)
+        try:
+            file_obj = io.BytesIO(data)
+            self.s3_client.upload_fileobj(
+                file_obj,
+                self.s3_bucket,
+                key,
+                ExtraArgs={"ContentType": "application/pdf"},
+            )
+        except Exception as exc:
+            print(f"[WARN] S3 upload failed for {relative_path}: {exc}")
             return None
 
         return f"s3://{self.s3_bucket}/{key}"
@@ -344,7 +480,10 @@ class PaperFetchPipeline:
                 "error": "No papers found in PubMed Central",
             }
 
-        output_folder.mkdir(parents=True, exist_ok=True)
+        if self.store_local:
+            output_folder.mkdir(parents=True, exist_ok=True)
+        elif upload_to_s3 and not self.s3_bucket:
+            raise RuntimeError("S3-only mode requires an S3 bucket for uploads.")
 
         downloaded_count = 0
         results = []
@@ -355,6 +494,7 @@ class PaperFetchPipeline:
         candidates: List[Tuple[str, str]] = []
         started_downloads = False
         next_candidate_index = 0
+        pending_uploads: List[Tuple[Path, bytes]] = []
 
         for pmcid in pmc_ids:
             if downloaded_count >= max_papers:
@@ -382,54 +522,103 @@ class PaperFetchPipeline:
                     candidate_pmcid, candidate_url = candidates[next_candidate_index]
                     next_candidate_index += 1
 
-                    save_path = output_folder / f"{drug_slug}_repurposing_PMC{candidate_pmcid}.pdf"
-                    if download_pdf(candidate_url, str(save_path), retries=self.max_retries, retry_delay=self.backoff_seconds):
-                        downloaded_count += 1
-                        downloaded_files.append(str(save_path))
-                        result_entry = {
-                            "pmcid": candidate_pmcid,
-                            "downloaded": True,
-                            "file_path": str(save_path),
-                        }
-                        result_by_path[str(save_path)] = result_entry
-                        results.append(result_entry)
-                        print(f"[SUCCESS] Downloaded: {save_path}")
+                    relative_path = Path(drug_slug) / f"{drug_slug}_repurposing_PMC{candidate_pmcid}.pdf"
 
-                        if upload_to_s3 and self.s3_bucket:
-                            if upload_after is None:
-                                print(f"[INFO] Uploading to S3: {save_path.name}")
-                                s3_uri = self._upload_to_s3(save_path)
-                                if s3_uri:
-                                    downloaded_s3.append(s3_uri)
-                                    result_entry["s3_uri"] = s3_uri
-                                    uploaded_paths.add(str(save_path))
-                                    print(f"[SUCCESS] Uploaded: {s3_uri}")
-                            elif downloaded_count >= upload_after:
-                                pending = [path for path in downloaded_files if path not in uploaded_paths]
-                                if pending:
-                                    print(
-                                        f"[INFO] Uploading {len(pending)} papers to S3 for '{drug_name}'"
-                                    )
-                                for pending_path in pending:
-                                    pending_file = Path(pending_path)
-                                    print(f"[INFO] Uploading to S3: {pending_file.name}")
-                                    s3_uri = self._upload_to_s3(pending_file)
+                    if self.store_local:
+                        save_path = output_folder / relative_path.name
+                        if download_pdf(
+                            candidate_url,
+                            str(save_path),
+                            retries=self.max_retries,
+                            retry_delay=self.backoff_seconds,
+                        ):
+                            downloaded_count += 1
+                            downloaded_files.append(str(save_path))
+                            result_entry = {
+                                "pmcid": candidate_pmcid,
+                                "downloaded": True,
+                                "file_path": str(save_path),
+                            }
+                            result_by_path[str(save_path)] = result_entry
+                            results.append(result_entry)
+                            print(f"[SUCCESS] Downloaded: {save_path}")
+
+                            if upload_to_s3 and self.s3_bucket:
+                                if upload_after is None:
+                                    print(f"[INFO] Uploading to S3: {save_path.name}")
+                                    s3_uri = self._upload_to_s3(save_path)
                                     if s3_uri:
                                         downloaded_s3.append(s3_uri)
-                                        entry = result_by_path.get(pending_path)
-                                        if entry is not None:
-                                            entry["s3_uri"] = s3_uri
-                                        uploaded_paths.add(pending_path)
+                                        result_entry["s3_uri"] = s3_uri
+                                        uploaded_paths.add(str(save_path))
                                         print(f"[SUCCESS] Uploaded: {s3_uri}")
-                                    else:
-                                        print(f"[WARN] S3 upload failed for {pending_file}")
+                                elif downloaded_count >= upload_after:
+                                    pending = [
+                                        path for path in downloaded_files if path not in uploaded_paths
+                                    ]
+                                    if pending:
+                                        print(
+                                            f"[INFO] Uploading {len(pending)} papers to S3 for '{drug_name}'"
+                                        )
+                                    for pending_path in pending:
+                                        pending_file = Path(pending_path)
+                                        print(f"[INFO] Uploading to S3: {pending_file.name}")
+                                        s3_uri = self._upload_to_s3(pending_file)
+                                        if s3_uri:
+                                            downloaded_s3.append(s3_uri)
+                                            entry = result_by_path.get(pending_path)
+                                            if entry is not None:
+                                                entry["s3_uri"] = s3_uri
+                                            uploaded_paths.add(pending_path)
+                                            print(f"[SUCCESS] Uploaded: {s3_uri}")
+                                        else:
+                                            print(f"[WARN] S3 upload failed for {pending_file}")
+                        else:
+                            results.append({"pmcid": candidate_pmcid, "status": "download_failed"})
+                            time.sleep(self.error_delay)
                     else:
-                        results.append({"pmcid": candidate_pmcid, "status": "download_failed"})
-                        time.sleep(self.error_delay)
+                        pdf_bytes = download_pdf_bytes(
+                            candidate_url,
+                            retries=self.max_retries,
+                            retry_delay=self.backoff_seconds,
+                        )
+                        if pdf_bytes:
+                            downloaded_count += 1
+                            result_entry = {
+                                "pmcid": candidate_pmcid,
+                                "downloaded": True,
+                                "file_path": str(relative_path),
+                            }
+                            result_by_path[str(relative_path)] = result_entry
+                            results.append(result_entry)
+                            print(f"[SUCCESS] Downloaded (memory): {relative_path.name}")
+
+                            if upload_to_s3 and self.s3_bucket:
+                                pending_uploads.append((relative_path, pdf_bytes))
+                                if upload_after is None or downloaded_count >= upload_after:
+                                    if pending_uploads:
+                                        print(
+                                            f"[INFO] Uploading {len(pending_uploads)} papers to S3 for '{drug_name}'"
+                                        )
+                                    for pending_path, pending_data in list(pending_uploads):
+                                        print(f"[INFO] Uploading to S3: {pending_path.name}")
+                                        s3_uri = self._upload_bytes_to_s3(pending_data, pending_path)
+                                        if s3_uri:
+                                            downloaded_s3.append(s3_uri)
+                                            entry = result_by_path.get(str(pending_path))
+                                            if entry is not None:
+                                                entry["s3_uri"] = s3_uri
+                                            print(f"[SUCCESS] Uploaded: {s3_uri}")
+                                        else:
+                                            print(f"[WARN] S3 upload failed for {pending_path}")
+                                        pending_uploads.remove((pending_path, pending_data))
+                        else:
+                            results.append({"pmcid": candidate_pmcid, "status": "download_failed"})
+                            time.sleep(self.error_delay)
 
             time.sleep(self.request_delay)
 
-        if downloaded_count == 0 and output_folder.exists():
+        if self.store_local and downloaded_count == 0 and output_folder.exists():
             try:
                 if not any(output_folder.iterdir()):
                     output_folder.rmdir()

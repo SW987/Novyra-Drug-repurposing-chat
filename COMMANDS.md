@@ -64,7 +64,7 @@ Default (prompts to resume/restart if a retrieval log exists):
 python run_fetch_papers.py
 ```
 
-Resume (skip drugs already in `drug_retrieval_log.csv`):
+Resume (skip drugs already in the retrieval log):
 
 ```powershell
 python run_fetch_papers.py --resume-mode resume
@@ -74,6 +74,12 @@ Restart (reprocess everything and clear the log):
 
 ```powershell
 python run_fetch_papers.py --resume-mode restart
+```
+
+Optional log controls (avoid conflicts when running multiple CSVs):
+
+```powershell
+python run_fetch_papers.py --csv-path .\data\drug_Data\drugs.csv --log-dir .\logs --run-id set1
 ```
 
 Custom CSV and output folder:
@@ -92,6 +98,12 @@ Mirror PDFs to S3 while downloading:
 
 ```powershell
 python run_fetch_papers.py --csv-path .\data\drug_Data\drugs.csv --storage-path .\data\testdata --s3-bucket novyra --s3-prefix llm-docs/testdata
+```
+
+S3-only (no local PDFs) with separate logs:
+
+```powershell
+python run_fetch_papers.py --csv-path .\data\drug_Data\drugs.csv --s3-only --log-dir .\logs --run-id set1
 ```
 
 ## Ingest downloaded PDFs into the vector DB

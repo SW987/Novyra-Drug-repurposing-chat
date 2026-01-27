@@ -1,4 +1,4 @@
-# EC2 ChromaDB + App Setup Guide
+﻿# EC2 ChromaDB + App Setup Guide
 
 This guide sets up ChromaDB persistence, ingestion, and the Streamlit + FastAPI apps
 on an AWS EC2 instance.
@@ -70,6 +70,12 @@ Notes:
 mkdir -p data/chroma data/docs data/testdata
 ```
 
+If you are running in **S3-only** mode (no local PDFs), you only need:
+
+```bash
+mkdir -p data/chroma
+```
+
 ## 8) Fetch papers (local + S3 mirror)
 
 Example using a CSV with spaces in the name:
@@ -86,7 +92,20 @@ This:
 - uploads to S3 when a drug reaches 3 papers
 - discards drugs with fewer than 3 papers
 
-## 9) Ingest PDFs into ChromaDB (local)
+## 9) Fetch papers (S3-only, no local PDFs)
+
+```bash
+python run_fetch_papers.py \
+  --csv-path "data/drug_Data/Drug Repurposing Papers (Drug Names Sets)/Drug Repurposing (Set SAMPLE).csv" \
+  --s3-only \
+  --log-dir logs \
+  --run-id sample
+```
+
+This downloads PDFs into memory and uploads directly to:
+`s3://<bucket>/<prefix>/<drug_slug>/<file>.pdf`
+
+## 10) Ingest PDFs into ChromaDB (local)
 
 ```bash
 python run_ingestion.py --storage-path data/testdata
@@ -99,13 +118,13 @@ python run_ingestion.py --resume-mode resume
 python run_ingestion.py --resume-mode restart
 ```
 
-## 10) Ingest PDFs directly from S3 (no local download)
+## 11) Ingest PDFs directly from S3 (no local download)
 
 ```bash
 python run_ingestion.py --s3-bucket your-bucket --s3-prefix llm-docs/testdata --s3-region us-east-1
 ```
 
-## 11) Start FastAPI
+## 12) Start FastAPI
 
 ```bash
 python -m app.main
@@ -113,7 +132,7 @@ python -m app.main
 
 FastAPI will listen on port 8000.
 
-## 12) Start Streamlit
+## 13) Start Streamlit
 
 ```bash
 python -m streamlit run streamlit_demo.py
@@ -121,7 +140,7 @@ python -m streamlit run streamlit_demo.py
 
 Streamlit will listen on port 8501.
 
-## 13) (Optional) Keep services running
+## 14) (Optional) Keep services running
 
 Basic background run:
 
@@ -130,7 +149,7 @@ nohup python -m app.main > fastapi.log 2>&1 &
 nohup python -m streamlit run streamlit_demo.py > streamlit.log 2>&1 &
 ```
 
-## 14) Verify
+## 15) Verify
 
 - FastAPI health:
   ```bash
@@ -139,7 +158,7 @@ nohup python -m streamlit run streamlit_demo.py > streamlit.log 2>&1 &
 - Streamlit UI:
   - `http://EC2_PUBLIC_IP:8501`
 
-If you didn’t open the ports, use SSH tunnels:
+If you didn't open the ports, use SSH tunnels:
 
 ```bash
 ssh -i /path/to/key.pem -L 8000:localhost:8000 -L 8501:localhost:8501 ubuntu@EC2_PUBLIC_IP
@@ -149,7 +168,7 @@ Then open:
 - `http://localhost:8000/health`
 - `http://localhost:8501`
 
-## 15) Notes on storage strategy
+## 16) Notes on storage strategy
 
 - Local: PDFs live under `DOCS_DIR`.
 - S3: PDFs are stored as `s3://<bucket>/<prefix>/<drug_slug>/<file>.pdf`.
@@ -162,3 +181,8 @@ rm -rf data/chroma
 ```
 
 Then re-run ingestion.
+
+## 17) Parallel fetches (4 CSVs)
+
+See `EC2_PARALLEL_S3_FETCH_GUIDE.md` for a ready-to-run set of `nohup` commands
+that launch 4 S3-only fetch processes with separate logs.

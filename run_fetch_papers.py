@@ -125,6 +125,21 @@ def main() -> None:
         default=r"C:\Users\daud.haider\Desktop\DRUG_REPURPOSING_CHAT_LATEST_WORKING\data\testdata",
         help="Folder to store downloaded PDFs",
     )
+    parser.add_argument(
+        "--log-dir",
+        default=None,
+        help="Folder to store retrieval logs (defaults to storage-path)",
+    )
+    parser.add_argument(
+        "--run-id",
+        default=None,
+        help="Optional run identifier to avoid log conflicts",
+    )
+    parser.add_argument(
+        "--s3-only",
+        action="store_true",
+        help="Store PDFs only in S3 (no local files). Requires S3 settings.",
+    )
     parser.add_argument("--max-papers-per-drug", type=int, default=3)
     parser.add_argument("--max-search-results", type=int, default=100)
     parser.add_argument("--request-delay", type=float, default=1.0)
@@ -161,7 +176,8 @@ def main() -> None:
         sys.exit(1)
 
     storage_path = Path(args.storage_path)
-    storage_path.mkdir(parents=True, exist_ok=True)
+    if not args.s3_only:
+        storage_path.mkdir(parents=True, exist_ok=True)
 
     drugs = _load_drugs_from_csv(csv_path)
     if not drugs:
@@ -174,9 +190,15 @@ def main() -> None:
             args.s3_prefix = settings.s3_prefix
         if not args.s3_region and settings.s3_region:
             args.s3_region = settings.s3_region
+    if args.s3_only and not args.s3_bucket:
+        _log("S3-only mode requires an S3 bucket (set --s3-bucket or S3_BUCKET).")
+        sys.exit(1)
 
     _log(f"Loaded {len(drugs)} drugs from {csv_path}")
-    _log(f"Storing PDFs under {storage_path}")
+    if args.s3_only:
+        _log("Storing PDFs only in S3 (no local files)")
+    else:
+        _log(f"Storing PDFs under {storage_path}")
     _log(f"Uploading to S3 only when a drug has >= {min_papers_for_upload} papers")
     if args.s3_bucket:
         prefix = args.s3_prefix.strip("/")
@@ -192,6 +214,7 @@ def main() -> None:
         s3_bucket=args.s3_bucket,
         s3_prefix=args.s3_prefix,
         s3_region=args.s3_region,
+        store_local=not args.s3_only,
     )
 
     job_start = time.time()
@@ -203,7 +226,11 @@ def main() -> None:
     }
 
     no_papers_rows = []
-    retrieval_log_path = storage_path / "drug_retrieval_log.csv"
+    log_dir = Path(args.log_dir) if args.log_dir else storage_path
+    log_dir.mkdir(parents=True, exist_ok=True)
+    csv_stem = csv_path.stem.replace(" ", "_")
+    run_suffix = f"_{args.run_id}" if args.run_id else ""
+    retrieval_log_path = log_dir / f"drug_retrieval_log_{csv_stem}{run_suffix}.csv"
     if retrieval_log_path.exists():
         if args.resume_mode == "ask":
             choice = _prompt_resume_choice()
@@ -315,7 +342,7 @@ def main() -> None:
         time.sleep(args.request_delay)
 
     if no_papers_rows:
-        no_papers_path = storage_path / "no_papers_found.csv"
+        no_papers_path = log_dir / f"no_papers_found_{csv_stem}{run_suffix}.csv"
         _append_no_papers_csv(no_papers_path, no_papers_rows)
         _log(f"Wrote {len(no_papers_rows)} entries to {no_papers_path}")
 

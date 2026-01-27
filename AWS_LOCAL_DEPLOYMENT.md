@@ -70,6 +70,7 @@ EOF
 ```
 
 Important: Do not set any S3 options and do not pass `--s3-bucket` in scripts.
+If you want S3-only fetching or parallel S3 runs, use `EC2_PARALLEL_S3_FETCH_GUIDE.md`.
 
 ## 7) (Optional) Preload or download PDFs locally
 
