@@ -158,7 +158,12 @@ class PDFIngestionPipeline:
         Returns:
             Complete processing results
         """
-        fetcher = PaperFetchPipeline(self.settings)
+        fetcher = PaperFetchPipeline(
+            self.settings,
+            s3_bucket=self.settings.s3_bucket,
+            s3_prefix=self.settings.s3_prefix,
+            s3_region=self.settings.s3_region,
+        )
         fetch_result = fetcher.fetch_drug_papers(
             drug_name, max_papers=max_papers, max_search_results=max_search_results
         )

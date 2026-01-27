@@ -1,4 +1,5 @@
 from pydantic_settings import BaseSettings
+from typing import Optional
 from functools import lru_cache
 from dotenv import load_dotenv
 
@@ -14,7 +15,10 @@ class Settings(BaseSettings):
     gemini_chat_model: str = "models/gemini-2.0-flash-exp"
     chroma_db_dir: str = "./data/chroma"
     chroma_collection_name: str = "drug_docs"
-    docs_dir: str = r"C:\Users\saadw\Downloads\repurposing research papers for 3 drugs"
+    docs_dir: str = "./data/docs"
+    s3_bucket: Optional[str] = None
+    s3_prefix: str = ""
+    s3_region: Optional[str] = None
 
     class Config:
         env_file = ".env"

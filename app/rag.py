@@ -38,7 +38,7 @@ def embed_query(query: str, client: genai, model: str) -> List[float]:
     return embedding
 
 
-def build_filter(drug_id: str, doc_id: Optional[str] = None) -> Dict[str, Any]:
+def build_filter(drug_id: Union[str, List[str]], doc_id: Optional[str] = None) -> Dict[str, Any]:
     """
     Build metadata filter for ChromaDB query.
 
@@ -49,7 +49,10 @@ def build_filter(drug_id: str, doc_id: Optional[str] = None) -> Dict[str, Any]:
     Returns:
         Filter dictionary for ChromaDB
     """
-    filter_dict = {"drug_id": drug_id}
+    if isinstance(drug_id, list):
+        filter_dict: Dict[str, Any] = {"drug_id": {"$in": drug_id}}
+    else:
+        filter_dict = {"drug_id": drug_id}
     if doc_id:
         filter_dict["doc_id"] = doc_id
     return filter_dict
@@ -57,7 +60,7 @@ def build_filter(drug_id: str, doc_id: Optional[str] = None) -> Dict[str, Any]:
 
 def retrieve_relevant_chunks(
     query: str,
-    drug_id: str,
+    drug_id: Union[str, List[str]],
     collection: Collection,
     settings: Settings,
     doc_id: Optional[str] = None,
@@ -330,7 +333,7 @@ def append_inline_references(answer: str, sources: List[Source]) -> str:
 
 def chat_with_documents(
     session_id: str,
-    drug_id: str,
+    drug_id: Union[str, List[str]],
     message: str,
     collection: Collection,
     settings: Settings,
@@ -358,8 +361,9 @@ def chat_with_documents(
     results = retrieve_relevant_chunks(message, drug_id, collection, settings, doc_id, top_k)
 
     if not results.documents:
+        drug_label = ", ".join(drug_id) if isinstance(drug_id, list) else drug_id
         return {
-            "answer": f"I couldn't find any relevant information about '{message}' in the documents for drug {drug_id}." +
+            "answer": f"I couldn't find any relevant information about '{message}' in the documents for drug {drug_label}." +
                      (f" (filtered to document {doc_id})" if doc_id else ""),
             "sources": [],
             "session_id": session_id

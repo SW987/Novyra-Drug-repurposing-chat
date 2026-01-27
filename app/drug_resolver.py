@@ -1,6 +1,6 @@
 import re
 from pathlib import Path
-from typing import Dict, Optional, Set, Tuple
+from typing import Dict, Optional, Set, Tuple, Iterable, Any
 
 from .utils import parse_filename
 
@@ -17,6 +17,11 @@ def _canonicalize(name: str) -> str:
     name = re.sub(r"\brepurposing\b", "", name)
     name = re.sub(r"[^a-z0-9]+", "", name)
     return name
+
+
+def canonicalize_drug_name(name: str) -> str:
+    """Public wrapper for canonicalization."""
+    return _canonicalize(name)
 
 
 def build_drug_lookup(docs_dir: str) -> Tuple[Set[str], Dict[str, Set[str]]]:
@@ -37,6 +42,30 @@ def build_drug_lookup(docs_dir: str) -> Tuple[Set[str], Dict[str, Set[str]]]:
         drug_ids.add(drug_id)
 
         for alias in {drug_id, pdf_path.parent.name}:
+            key = _canonicalize(alias)
+            if not key:
+                continue
+            canonical_map.setdefault(key, set()).add(drug_id)
+
+    return drug_ids, canonical_map
+
+
+def build_drug_lookup_from_metadatas(
+    metadatas: Iterable[Dict[str, Any]]
+) -> Tuple[Set[str], Dict[str, Set[str]]]:
+    drug_ids: Set[str] = set()
+    canonical_map: Dict[str, Set[str]] = {}
+
+    for meta in metadatas:
+        if not isinstance(meta, dict):
+            continue
+        drug_id = (meta.get("drug_id") or "").strip().lower()
+        if not drug_id:
+            continue
+        drug_ids.add(drug_id)
+
+        aliases = {drug_id, drug_id.replace("_", " "), drug_id.replace("_", "-")}
+        for alias in aliases:
             key = _canonicalize(alias)
             if not key:
                 continue

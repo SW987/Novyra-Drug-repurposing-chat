@@ -312,7 +312,12 @@ class PaperFetchPipeline:
         return f"s3://{self.s3_bucket}/{key}"
 
     def fetch_drug_papers(
-        self, drug_name: str, max_papers: int = 3, max_search_results: int = 50
+        self,
+        drug_name: str,
+        max_papers: int = 3,
+        max_search_results: int = 50,
+        upload_to_s3: bool = True,
+        upload_after: Optional[int] = None,
     ) -> Dict[str, Any]:
         print(f"[INFO] Searching PubMed for '{drug_name} repurposing'...")
 
@@ -345,6 +350,11 @@ class PaperFetchPipeline:
         results = []
         downloaded_files = []
         downloaded_s3 = []
+        uploaded_paths = set()
+        result_by_path: Dict[str, Dict[str, Any]] = {}
+        candidates: List[Tuple[str, str]] = []
+        started_downloads = False
+        next_candidate_index = 0
 
         for pmcid in pmc_ids:
             if downloaded_count >= max_papers:
@@ -362,20 +372,60 @@ class PaperFetchPipeline:
                 time.sleep(self.error_delay)
                 continue
 
-            save_path = output_folder / f"{drug_slug}_repurposing_PMC{pmcid}.pdf"
-            if download_pdf(pdf_url, str(save_path), retries=self.max_retries, retry_delay=self.backoff_seconds):
-                downloaded_count += 1
-                downloaded_files.append(str(save_path))
-                result_entry = {"pmcid": pmcid, "downloaded": True, "file_path": str(save_path)}
-                s3_uri = self._upload_to_s3(save_path)
-                if s3_uri:
-                    downloaded_s3.append(s3_uri)
-                    result_entry["s3_uri"] = s3_uri
-                results.append(result_entry)
-                print(f"[SUCCESS] Downloaded: {save_path}")
-            else:
-                results.append({"pmcid": pmcid, "status": "download_failed"})
-                time.sleep(self.error_delay)
+            candidates.append((pmcid, pdf_url))
+            if not started_downloads and len(candidates) >= max_papers:
+                started_downloads = True
+                print(f"[INFO] Found {max_papers} OA PDFs for '{drug_name}'. Starting downloads.")
+
+            if started_downloads:
+                while next_candidate_index < len(candidates) and downloaded_count < max_papers:
+                    candidate_pmcid, candidate_url = candidates[next_candidate_index]
+                    next_candidate_index += 1
+
+                    save_path = output_folder / f"{drug_slug}_repurposing_PMC{candidate_pmcid}.pdf"
+                    if download_pdf(candidate_url, str(save_path), retries=self.max_retries, retry_delay=self.backoff_seconds):
+                        downloaded_count += 1
+                        downloaded_files.append(str(save_path))
+                        result_entry = {
+                            "pmcid": candidate_pmcid,
+                            "downloaded": True,
+                            "file_path": str(save_path),
+                        }
+                        result_by_path[str(save_path)] = result_entry
+                        results.append(result_entry)
+                        print(f"[SUCCESS] Downloaded: {save_path}")
+
+                        if upload_to_s3 and self.s3_bucket:
+                            if upload_after is None:
+                                print(f"[INFO] Uploading to S3: {save_path.name}")
+                                s3_uri = self._upload_to_s3(save_path)
+                                if s3_uri:
+                                    downloaded_s3.append(s3_uri)
+                                    result_entry["s3_uri"] = s3_uri
+                                    uploaded_paths.add(str(save_path))
+                                    print(f"[SUCCESS] Uploaded: {s3_uri}")
+                            elif downloaded_count >= upload_after:
+                                pending = [path for path in downloaded_files if path not in uploaded_paths]
+                                if pending:
+                                    print(
+                                        f"[INFO] Uploading {len(pending)} papers to S3 for '{drug_name}'"
+                                    )
+                                for pending_path in pending:
+                                    pending_file = Path(pending_path)
+                                    print(f"[INFO] Uploading to S3: {pending_file.name}")
+                                    s3_uri = self._upload_to_s3(pending_file)
+                                    if s3_uri:
+                                        downloaded_s3.append(s3_uri)
+                                        entry = result_by_path.get(pending_path)
+                                        if entry is not None:
+                                            entry["s3_uri"] = s3_uri
+                                        uploaded_paths.add(pending_path)
+                                        print(f"[SUCCESS] Uploaded: {s3_uri}")
+                                    else:
+                                        print(f"[WARN] S3 upload failed for {pending_file}")
+                    else:
+                        results.append({"pmcid": candidate_pmcid, "status": "download_failed"})
+                        time.sleep(self.error_delay)
 
             time.sleep(self.request_delay)
 
@@ -399,7 +449,12 @@ class PaperFetchPipeline:
         }
 
     def fetch_papers_for_drugs(
-        self, drugs: List[str], max_papers_per_drug: int = 3, max_search_results: int = 100
+        self,
+        drugs: List[str],
+        max_papers_per_drug: int = 3,
+        max_search_results: int = 100,
+        upload_to_s3: bool = True,
+        upload_after: Optional[int] = None,
     ) -> Dict[str, Any]:
         overall = {
             "timestamp": time.time(),
@@ -410,7 +465,11 @@ class PaperFetchPipeline:
 
         for drug_name in drugs:
             result = self.fetch_drug_papers(
-                drug_name, max_papers=max_papers_per_drug, max_search_results=max_search_results
+                drug_name,
+                max_papers=max_papers_per_drug,
+                max_search_results=max_search_results,
+                upload_to_s3=upload_to_s3,
+                upload_after=upload_after,
             )
             overall["drugs_processed"].append(drug_name)
             overall["total_downloaded"] += result.get("downloaded", 0)

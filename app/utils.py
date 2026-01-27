@@ -1,5 +1,15 @@
 import re
+import logging
+import warnings
+from io import BytesIO
+
 import PyPDF2
+from PyPDF2.errors import PdfReadError, PdfReadWarning
+
+
+_pypdf_logger = logging.getLogger("PyPDF2")
+_pypdf_logger.setLevel(logging.ERROR)
+_pypdf_logger.propagate = False
 from pathlib import Path
 from typing import NamedTuple, Optional
 
@@ -10,6 +20,13 @@ class DocumentInfo(NamedTuple):
     doc_id: str
     doc_title: str
     file_path: str
+
+
+def _normalize_drug_id(drug_id: str) -> str:
+    cleaned = drug_id.strip().lower()
+    cleaned = re.sub(r"[\s\-]+", "_", cleaned)
+    cleaned = re.sub(r"_+", "_", cleaned)
+    return cleaned.strip("_")
 
 
 def parse_filename(filename: str, drug_folder: str) -> DocumentInfo:
@@ -39,8 +56,11 @@ def parse_filename(filename: str, drug_folder: str) -> DocumentInfo:
         else:
             source_id = '_'.join(parts[1:])
 
+    drug_id = _normalize_drug_id(drug_id)
+
+    display_name = drug_id.replace("_", " ").strip()
     # Create human-readable title
-    doc_title = f"{drug_id.title()} Repurposing {source_id}"
+    doc_title = f"{display_name.title()} Repurposing {source_id}"
 
     return DocumentInfo(
         drug_id=drug_id.lower(),
@@ -64,19 +84,64 @@ def extract_text_from_pdf(pdf_path: str) -> str:
         Exception: If PDF cannot be processed
     """
     try:
-        with open(pdf_path, 'rb') as file:
-            pdf_reader = PyPDF2.PdfReader(file)
-            text = ""
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", PdfReadWarning)
+            with open(pdf_path, 'rb') as file:
+                pdf_reader = PyPDF2.PdfReader(file, strict=False)
+                if pdf_reader.is_encrypted:
+                    pdf_reader.decrypt("")
+                text = ""
 
-            for page in pdf_reader.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + "\n"
+                for page in pdf_reader.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        text += page_text + "\n"
+
+            for warning in caught:
+                print(f"[WARN] {pdf_path}: {warning.message}")
 
             return text.strip()
 
+    except PdfReadError as e:
+        raise Exception(f"Failed to extract text from PDF {pdf_path}: {str(e)}")
     except Exception as e:
         raise Exception(f"Failed to extract text from PDF {pdf_path}: {str(e)}")
+
+
+def extract_text_from_pdf_bytes(pdf_bytes: bytes, source_name: str = "<bytes>") -> str:
+    """
+    Extract text content from PDF bytes using PyPDF2.
+
+    Args:
+        pdf_bytes: Raw PDF bytes
+        source_name: Label used in error messages
+
+    Returns:
+        Extracted text content
+    """
+    try:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always", PdfReadWarning)
+            with BytesIO(pdf_bytes) as buffer:
+                pdf_reader = PyPDF2.PdfReader(buffer, strict=False)
+                if pdf_reader.is_encrypted:
+                    pdf_reader.decrypt("")
+                text = ""
+
+                for page in pdf_reader.pages:
+                    page_text = page.extract_text()
+                    if page_text:
+                        text += page_text + "\n"
+
+            for warning in caught:
+                print(f"[WARN] {source_name}: {warning.message}")
+
+            return text.strip()
+
+    except PdfReadError as e:
+        raise Exception(f"Failed to extract text from PDF {source_name}: {str(e)}")
+    except Exception as e:
+        raise Exception(f"Failed to extract text from PDF {source_name}: {str(e)}")
 
 
 def chunk_text(text: str, chunk_size: int = 1000, overlap: int = 200) -> list[str]:

@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 
 
 class Message(BaseModel):
@@ -10,7 +10,7 @@ class Message(BaseModel):
 class ChatRequest(BaseModel):
     """Request model for chat endpoint."""
     session_id: str = Field(..., description="Unique session identifier")
-    drug_id: str = Field(..., description="Drug identifier to filter documents")
+    drug_id: Union[str, List[str]] = Field(..., description="Drug identifier(s) to filter documents")
     message: str = Field(..., description="User's chat message")
     doc_id: Optional[str] = Field(None, description="Optional specific document ID to query")
     conversation_history: Optional[List[Message]] = Field(default_factory=list, description="Previous conversation messages for context")

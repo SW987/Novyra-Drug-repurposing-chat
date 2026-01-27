@@ -7,7 +7,7 @@ from .config import Settings, get_settings
 from .vector_store import init_vector_store
 from .rag import chat_with_documents
 from .ingestion import ingest_single_document, ingest_pdfs_from_directory
-from .drug_resolver import build_drug_lookup, resolve_drug_id
+from .drug_resolver import build_drug_lookup, resolve_drug_id, build_drug_lookup_from_metadatas
 from .schemas import (
     ChatRequest, ChatByDrugNameRequest, ChatResponse, IngestRequest, IngestResponse,
     HealthResponse, IngestStatusResponse
@@ -21,6 +21,32 @@ drug_ids = set()
 drug_aliases = {}
 
 
+def _load_collection_metadatas(collection) -> list[dict]:
+    try:
+        total = collection.count()
+    except Exception:
+        return []
+
+    if total <= 0:
+        return []
+
+    page_size = 1000
+    offset = 0
+    metadatas = []
+
+    while offset < total:
+        batch = collection.get(
+            limit=page_size,
+            offset=offset,
+            include=["metadatas"]
+        )
+        batch_metas = batch.get("metadatas") or []
+        metadatas.extend([meta for meta in batch_metas if isinstance(meta, dict)])
+        offset += page_size
+
+    return metadatas
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager for startup and shutdown."""
@@ -31,6 +57,10 @@ async def lifespan(app: FastAPI):
     collection = init_vector_store(settings)
     genai.configure(api_key=settings.gemini_api_key) # Configure Gemini client globally
     drug_ids, drug_aliases = build_drug_lookup(settings.docs_dir)
+    if not drug_ids:
+        metadatas = _load_collection_metadatas(collection)
+        if metadatas:
+            drug_ids, drug_aliases = build_drug_lookup_from_metadatas(metadatas)
     print(f"Initialized vector store at {settings.chroma_db_dir}")
     print(f"Collection: {settings.chroma_collection_name}")
     print(f"PDF source directory: {settings.docs_dir}")
@@ -243,14 +273,16 @@ async def list_drugs(
     """
     List all available drugs in the system.
     """
-    from pathlib import Path
-
-    docs_path = Path(settings.docs_dir)
-    if not docs_path.exists():
+    global collection
+    if collection is None:
         return {"drugs": []}
 
-    drug_folders = [f.name for f in docs_path.iterdir() if f.is_dir()]
-    return {"drugs": drug_folders}
+    metadatas = _load_collection_metadatas(collection)
+    if not metadatas:
+        return {"drugs": []}
+
+    drug_ids, _aliases = build_drug_lookup_from_metadatas(metadatas)
+    return {"drugs": sorted(drug_ids)}
 
 
 @app.on_event("startup")

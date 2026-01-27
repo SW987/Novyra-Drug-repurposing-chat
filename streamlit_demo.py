@@ -7,7 +7,8 @@ Combines frontend and backend in one deployable application
 import streamlit as st
 import time
 import os
-from typing import List, Dict, Any, Optional
+import re
+from typing import List, Dict, Any, Optional, Union
 from pathlib import Path
 import requests
 
@@ -48,19 +49,41 @@ def _format_drug_label(drug_id: str) -> str:
     return f"{pretty.title()} - Downloaded (custom)"
 
 
-def discover_downloaded_drugs(settings: Settings) -> dict:
+def _canonicalize_drug_id(drug_id: str) -> str:
+    cleaned = drug_id.strip().lower()
+    cleaned = re.sub(r"[\s\-]+", "_", cleaned)
+    cleaned = re.sub(r"_+", "_", cleaned)
+    return cleaned.strip("_")
+
+
+def _is_single_letter_drug_id(drug_id: str) -> bool:
+    cleaned = re.sub(r"[^a-z0-9]", "", drug_id.strip().lower())
+    return len(cleaned) <= 1
+
+
+def _merge_aliases(*maps: dict) -> dict:
+    merged = {}
+    for mapping in maps:
+        for key, values in mapping.items():
+            merged.setdefault(key, set()).update(values)
+    return {key: sorted(values) for key, values in merged.items()}
+
+
+def discover_downloaded_drugs(settings: Settings, min_papers: int = 1) -> tuple[dict, dict]:
     """Return mapping of dynamically downloaded drugs found under docs_dir."""
     discovered = {}
+    aliases = {}
     docs_dir = _get_docs_dir(settings)
     suffix = " repurposing"
     if not docs_dir.exists():
-        return discovered
+        return discovered, aliases
 
+    grouped = {}
     for subdir in docs_dir.iterdir():
         if not subdir.is_dir():
             continue
-        # Require at least one PDF to consider it "available"
-        if not any(subdir.glob("*.pdf")):
+        pdf_count = sum(1 for _ in subdir.glob("*.pdf"))
+        if pdf_count < min_papers:
             continue
 
         name = subdir.name
@@ -68,10 +91,85 @@ def discover_downloaded_drugs(settings: Settings) -> dict:
         if drug_id.endswith(suffix):
             drug_id = drug_id[: -len(suffix)].strip()
 
-        if drug_id not in AVAILABLE_DRUGS:
-            discovered[drug_id] = _format_drug_label(drug_id)
+        canonical = _canonicalize_drug_id(drug_id)
+        if _is_single_letter_drug_id(canonical):
+            continue
 
-    return discovered
+        entry = grouped.setdefault(canonical, {"total_papers": 0, "aliases": set()})
+        entry["total_papers"] += pdf_count
+        entry["aliases"].add(drug_id)
+
+    for canonical, entry in grouped.items():
+        if entry["total_papers"] < min_papers:
+            continue
+        if canonical not in AVAILABLE_DRUGS:
+            label_name = canonical.replace("_", " ").title()
+            discovered[canonical] = f"{label_name} - Downloaded (custom)"
+        entry["aliases"].add(canonical)
+        aliases[canonical] = sorted(entry["aliases"])
+
+    return discovered, aliases
+
+
+def discover_indexed_drugs(
+    collection,
+    preloaded: dict,
+    label_suffix: str = "Indexed (Chroma)",
+    min_papers: int = 1
+) -> tuple[dict, dict]:
+    """Return mapping of drugs that exist in the vector store metadata."""
+    discovered = {}
+    aliases = {}
+    try:
+        total = collection.count()
+    except Exception:
+        return discovered, aliases
+
+    if total <= 0:
+        return discovered, aliases
+
+    page_size = 1000
+    offset = 0
+    doc_sets = {}
+
+    while offset < total:
+        batch = collection.get(
+            limit=page_size,
+            offset=offset,
+            include=["metadatas"]
+        )
+        metadatas = batch.get("metadatas") or []
+        for meta in metadatas:
+            if not isinstance(meta, dict):
+                continue
+            drug_id = (meta.get("drug_id") or "").strip().lower()
+            if not drug_id:
+                continue
+            doc_id = (meta.get("doc_id") or meta.get("source_uri") or meta.get("file_path") or "").strip()
+            if not doc_id:
+                continue
+            doc_sets.setdefault(drug_id, set()).add(doc_id)
+        offset += page_size
+
+    grouped = {}
+    for drug_id, doc_ids in doc_sets.items():
+        canonical = _canonicalize_drug_id(drug_id)
+        if _is_single_letter_drug_id(canonical):
+            continue
+        entry = grouped.setdefault(canonical, {"doc_ids": set(), "aliases": set()})
+        entry["doc_ids"].update(doc_ids)
+        entry["aliases"].add(drug_id)
+
+    for canonical, entry in grouped.items():
+        if len(entry["doc_ids"]) < min_papers:
+            continue
+        if canonical not in preloaded:
+            label_name = canonical.replace("_", " ").title()
+            discovered[canonical] = f"{label_name} - {label_suffix}"
+        entry["aliases"].add(canonical)
+        aliases[canonical] = sorted(entry["aliases"])
+
+    return discovered, aliases
 
 def init_session_state():
     """Initialize session state for chat history"""
@@ -159,7 +257,7 @@ def process_custom_drug(drug_name):
         except:
             pass
 
-def make_chat_request(drug_id: str, message: str, session_id: str, conversation_history: List[Dict[str, str]] = None) -> Dict[str, Any]:
+def make_chat_request(drug_id: Union[str, List[str]], message: str, session_id: str, conversation_history: List[Dict[str, str]] = None) -> Dict[str, Any]:
     """Make a chat request using the integrated RAG system"""
     try:
         # Convert conversation history to Message objects
@@ -213,9 +311,11 @@ def main():
 
     # Initialize session state
     init_session_state()
-    # Compute available drugs (built-ins + any previously downloaded)
-    dynamic_drugs = discover_downloaded_drugs(settings)
-    available_drugs = {**AVAILABLE_DRUGS, **dynamic_drugs}
+    # Compute available drugs (built-ins + indexed in Chroma + local downloads)
+    indexed_drugs, indexed_aliases = discover_indexed_drugs(collection, AVAILABLE_DRUGS, min_papers=2)
+    local_drugs, local_aliases = discover_downloaded_drugs(settings, min_papers=2)
+    available_drugs = {**AVAILABLE_DRUGS, **indexed_drugs, **local_drugs}
+    drug_aliases = _merge_aliases({key: [key] for key in AVAILABLE_DRUGS}, indexed_aliases, local_aliases)
 
     # Sidebar for drug selection and info
     with st.sidebar:
@@ -388,8 +488,12 @@ def main():
 
             # Make API request with conversation history
             with st.spinner("🔍 Searching research documents..."):
-                response = make_chat_request(
+                query_drug_ids = drug_aliases.get(
                     st.session_state.current_drug,
+                    [st.session_state.current_drug]
+                )
+                response = make_chat_request(
+                    query_drug_ids,
                     prompt,
                     st.session_state.session_id,
                     conversation_history

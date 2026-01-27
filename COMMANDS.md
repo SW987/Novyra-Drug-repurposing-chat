@@ -27,12 +27,33 @@ GEMINI_CHAT_MODEL=models/gemini-2.0-flash-exp
 CHROMA_DB_DIR=./data/chroma
 CHROMA_COLLECTION_NAME=drug_docs
 DOCS_DIR=./data/docs
+S3_BUCKET=your-bucket
+S3_PREFIX=llm-docs/testdata
+S3_REGION=us-east-1
 ```
 
 ## Run the Streamlit app
 
 ```powershell
 streamlit run streamlit_demo.py
+```
+
+If the Streamlit launcher path is broken, use:
+
+```powershell
+python -m streamlit run streamlit_demo.py
+```
+
+## Run the FastAPI API
+
+```powershell
+python -m app.main
+```
+
+Or with uvicorn directly:
+
+```powershell
+uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 ## Fetch papers (downloads PDFs only)
@@ -61,6 +82,12 @@ Custom CSV and output folder:
 python run_fetch_papers.py --csv-path .\data\drug_Data\drugs.csv --storage-path .\data\testdata
 ```
 
+Sample CSV with spaces/parentheses:
+
+```powershell
+python run_fetch_papers.py --csv-path "data\drug_Data\Drug Repurposing Papers (Drug Names Sets)\Drug Repurposing (Set SAMPLE).csv" --storage-path "data\testdata"
+```
+
 Mirror PDFs to S3 while downloading:
 
 ```powershell
@@ -83,6 +110,29 @@ Multiple storage paths (run jobs in parallel):
 
 ```powershell
 python run_ingestion.py --storage-path .\data\run1 --storage-path .\data\run2 --max-workers 2
+```
+
+Resume (skip already ingested drugs in `ingestion_log.csv`):
+
+```powershell
+python run_ingestion.py --resume-mode resume
+```
+
+Restart (reprocess everything and clear the log):
+
+```powershell
+python run_ingestion.py --resume-mode restart
+```
+
+## Ingest PDFs directly from S3 (no local download)
+
+```powershell
+python run_ingestion.py --s3-bucket your-bucket --s3-prefix llm-docs/testdata
+```
+
+Optional region:
+```powershell
+python run_ingestion.py --s3-bucket your-bucket --s3-prefix llm-docs/testdata --s3-region us-east-1
 ```
 
 ## Integrated workflow demo (optional)

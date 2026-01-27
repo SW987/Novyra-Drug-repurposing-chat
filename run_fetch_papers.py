@@ -150,6 +150,7 @@ def main() -> None:
 
     _log("Starting paper fetch job")
 
+    min_papers_for_upload = 3
     load_dotenv()
     settings = get_settings()
     settings.docs_dir = str(Path(args.storage_path))
@@ -167,8 +168,16 @@ def main() -> None:
         _log("No drugs found in CSV")
         sys.exit(1)
 
+    if not args.s3_bucket and settings.s3_bucket:
+        args.s3_bucket = settings.s3_bucket
+        if args.s3_prefix == "" and settings.s3_prefix:
+            args.s3_prefix = settings.s3_prefix
+        if not args.s3_region and settings.s3_region:
+            args.s3_region = settings.s3_region
+
     _log(f"Loaded {len(drugs)} drugs from {csv_path}")
     _log(f"Storing PDFs under {storage_path}")
+    _log(f"Uploading to S3 only when a drug has >= {min_papers_for_upload} papers")
     if args.s3_bucket:
         prefix = args.s3_prefix.strip("/")
         target = f"s3://{args.s3_bucket}/{prefix}" if prefix else f"s3://{args.s3_bucket}"
@@ -227,6 +236,8 @@ def main() -> None:
                     drug_name,
                     max_papers=args.max_papers_per_drug,
                     max_search_results=args.max_search_results,
+                    upload_to_s3=bool(args.s3_bucket),
+                    upload_after=min_papers_for_upload,
                 )
                 if result.get("success"):
                     break
@@ -246,6 +257,34 @@ def main() -> None:
                 "downloaded": 0,
                 "error": "fetch_failed",
             }
+
+        downloaded_files = [Path(p) for p in result.get("downloaded_files", [])]
+        downloaded_count = result.get("downloaded", 0)
+
+        if downloaded_count < min_papers_for_upload and downloaded_files:
+            _log(
+                f"Discarding {downloaded_count} papers for {drug_name} "
+                f"(needs >= {min_papers_for_upload})"
+            )
+            for file_path in downloaded_files:
+                try:
+                    file_path.unlink()
+                except OSError as exc:
+                    _log(f"Failed to delete {file_path}: {exc}")
+
+            output_folder = Path(result.get("output_folder", ""))
+            if output_folder.exists():
+                try:
+                    if not any(output_folder.iterdir()):
+                        output_folder.rmdir()
+                except OSError:
+                    pass
+
+            result["downloaded"] = 0
+            result["downloaded_files"] = []
+            result["downloaded_s3"] = []
+            result["discarded"] = downloaded_count
+            result["success"] = False
 
         drug_duration = time.time() - drug_start
         job_elapsed = time.time() - job_start
