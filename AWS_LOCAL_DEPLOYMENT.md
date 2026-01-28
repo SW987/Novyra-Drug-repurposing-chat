@@ -62,6 +62,7 @@ Update `.env`:
 cat > .env << 'EOF'
 GEMINI_API_KEY=your_actual_api_key_here
 GEMINI_EMBEDDING_MODEL=models/embedding-001
+GEMINI_EMBEDDING_DIMENSION=768
 GEMINI_CHAT_MODEL=models/gemini-2.0-flash-exp
 CHROMA_DB_DIR=./data/chroma
 CHROMA_COLLECTION_NAME=drug_docs
@@ -70,6 +71,8 @@ EOF
 ```
 
 Important: Do not set any S3 options and do not pass `--s3-bucket` in scripts.
+If you use a different embedding model, update `GEMINI_EMBEDDING_DIMENSION`
+accordingly and rebuild Chroma.
 If you want S3-only fetching or parallel S3 runs, use `EC2_PARALLEL_S3_FETCH_GUIDE.md`.
 
 ## 7) (Optional) Preload or download PDFs locally

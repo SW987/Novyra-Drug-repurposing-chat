@@ -23,6 +23,7 @@ Create `.env` in the project root:
 ```bash
 GEMINI_API_KEY=your_actual_api_key_here
 GEMINI_EMBEDDING_MODEL=models/embedding-001
+GEMINI_EMBEDDING_DIMENSION=768
 GEMINI_CHAT_MODEL=models/gemini-2.0-flash-exp
 CHROMA_DB_DIR=./data/chroma
 CHROMA_COLLECTION_NAME=drug_docs
@@ -128,6 +129,18 @@ Watch mode (poll for new drugs, delete PDFs after ingest):
 
 ```powershell
 python run_ingestion.py --storage-path .\data\testdata --drug-workers 5 --watch --poll-interval 60 --delete-on-success
+```
+
+Watch mode (unbuffered, nohup, Linux):
+
+```bash
+nohup env PYTHONUNBUFFERED=1 python -u run_ingestion.py \
+  --storage-path data/testdata \
+  --drug-workers 5 \
+  --watch \
+  --poll-interval 60 \
+  --delete-on-success \
+  > logs/ingestion_watch.out 2>&1 &
 ```
 
 Multiple storage paths (run jobs in parallel):

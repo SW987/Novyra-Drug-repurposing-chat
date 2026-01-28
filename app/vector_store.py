@@ -44,11 +44,14 @@ def init_vector_store(settings: Settings) -> Collection:
         embedding_function=gemini_ef  # Explicitly set the custom embedding function
     )
 
-    # CRITICAL: Verify and enforce 768-dimensional embeddings for demo guarantee
-    # Test embedding to confirm dimensions
+    # Verify embedding dimensions to prevent collection mismatches
     test_embedding = gemini_ef(["test query for dimension verification"])
-    if len(test_embedding[0]) != 768:
-        raise ValueError(f"Embedding dimension mismatch! Expected 768, got {len(test_embedding[0])}")
+    expected_dim = settings.gemini_embedding_dimension
+    if len(test_embedding[0]) != expected_dim:
+        raise ValueError(
+            "Embedding dimension mismatch! "
+            f"Expected {expected_dim}, got {len(test_embedding[0])}"
+        )
 
     print(f"✅ Verified: Embedding function produces {len(test_embedding[0])}-dimensional vectors")
     return collection
