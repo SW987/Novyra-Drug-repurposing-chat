@@ -124,6 +124,12 @@ Process drugs concurrently (5 workers):
 python run_ingestion.py --storage-path .\data\testdata --drug-workers 5
 ```
 
+Watch mode (poll for new drugs, delete PDFs after ingest):
+
+```powershell
+python run_ingestion.py --storage-path .\data\testdata --drug-workers 5 --watch --poll-interval 60 --delete-on-success
+```
+
 Multiple storage paths (run jobs in parallel):
 
 ```powershell

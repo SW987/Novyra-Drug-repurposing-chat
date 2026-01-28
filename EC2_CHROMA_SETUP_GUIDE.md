@@ -117,6 +117,12 @@ Process multiple drugs concurrently (example: 5 workers):
 python run_ingestion.py --storage-path data/testdata --drug-workers 5
 ```
 
+Watch mode (poll for new drugs, delete PDFs after ingest):
+
+```bash
+python run_ingestion.py --storage-path data/testdata --drug-workers 5 --watch --poll-interval 60 --delete-on-success
+```
+
 Resume / restart ingestion using the log:
 
 ```bash

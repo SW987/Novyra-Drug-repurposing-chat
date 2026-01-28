@@ -135,6 +135,7 @@ def _run_ingestion_batch(
     job_label: str,
     log_path: Optional[Path] = None,
     drug_workers: int = 1,
+    delete_on_success: bool = False,
 ) -> Dict[str, Any]:
     overall_results: Dict[str, Any] = {
         "timestamp": time.time(),
@@ -169,6 +170,30 @@ def _run_ingestion_batch(
         progress = _render_progress(processed_count, total_drugs)
         drug_name = drug_result["drug_name"]
         _log(f"{progress} Completed drug: {drug_name}", job_label)
+
+        if delete_on_success and drug_result.get("results"):
+            deleted = 0
+            for file_result in drug_result["results"]:
+                if not file_result.get("success"):
+                    continue
+                file_path = Path(file_result.get("file_path", ""))
+                if file_path.exists():
+                    try:
+                        file_path.unlink()
+                        deleted += 1
+                    except OSError as exc:
+                        _log(f"Failed to delete {file_path}: {exc}", job_label)
+
+            if deleted:
+                _log(f"Deleted {deleted} PDFs for {drug_name}", job_label)
+
+            folder_path = Path(drug_result.get("directory", ""))
+            if folder_path.exists():
+                try:
+                    if not any(folder_path.iterdir()):
+                        folder_path.rmdir()
+                except OSError:
+                    pass
 
         overall_results["drugs_processed"].append(drug_name)
         overall_results["total_files"] += drug_result["total_files"]
@@ -258,7 +283,10 @@ def _run_ingestion_batch(
 
 
 def _run_ingestion_job(
-    storage_path: str, resume_mode: str = "ask", drug_workers: int = 1
+    storage_path: str,
+    resume_mode: str = "ask",
+    drug_workers: int = 1,
+    delete_on_success: bool = False,
 ) -> Dict[str, Any]:
     job_label = Path(storage_path).name or storage_path
     _log(f"Starting ingestion job for {storage_path}", job_label)
@@ -298,7 +326,7 @@ def _run_ingestion_job(
             log_path.unlink()
 
     if not drug_dirs:
-        message = f"No drug folders found under {docs_dir}"
+        message = f"No new drug folders found under {docs_dir}"
         _log(message, job_label)
         _log("Update run_ingestion.py to point at your PDF folders", job_label)
         return {
@@ -319,6 +347,7 @@ def _run_ingestion_job(
         job_label,
         log_path=log_path,
         drug_workers=drug_workers,
+        delete_on_success=delete_on_success,
     )
     results["storage_path"] = str(docs_dir)
     return results
@@ -398,6 +427,22 @@ def main() -> None:
         help="Number of drugs to process concurrently within a job",
     )
     parser.add_argument(
+        "--watch",
+        action="store_true",
+        help="Continuously poll for new drug folders and ingest them",
+    )
+    parser.add_argument(
+        "--poll-interval",
+        type=int,
+        default=60,
+        help="Seconds to wait between watch cycles",
+    )
+    parser.add_argument(
+        "--delete-on-success",
+        action="store_true",
+        help="Delete PDFs after successful ingestion (local storage only)",
+    )
+    parser.add_argument(
         "--resume-mode",
         choices=["ask", "resume", "restart"],
         default="ask",
@@ -411,6 +456,8 @@ def main() -> None:
     if args.s3_bucket:
         if args.storage_path:
             _log("S3 ingestion selected; ignoring --storage-path values")
+        if args.delete_on_success:
+            _log("Delete-on-success is only supported for local ingestion.")
         result = _run_s3_ingestion_job(args.s3_bucket, args.s3_prefix, args.s3_region)
         print(result)
         return
@@ -433,12 +480,32 @@ def main() -> None:
     _log("Starting dedicated ingestion script")
 
     results_by_path: Dict[str, Dict[str, Any]] = {}
-    if len(storage_paths) > 1 and max_workers > 1:
+    if args.watch:
+        if len(storage_paths) > 1 and max_workers > 1:
+            _log("Watch mode uses one worker per storage path; --max-workers ignored.")
+        _log(f"Watch mode enabled. Polling every {args.poll_interval}s.")
+        while True:
+            for storage_path in storage_paths:
+                _run_ingestion_job(
+                    storage_path,
+                    resume_mode,
+                    drug_workers,
+                    args.delete_on_success,
+                )
+            _log("Watch cycle complete. Sleeping...")
+            time.sleep(max(1, args.poll_interval))
+    elif len(storage_paths) > 1 and max_workers > 1:
         worker_count = min(max_workers, len(storage_paths))
         _log(f"Running {len(storage_paths)} ingestion jobs with {worker_count} workers")
         with ProcessPoolExecutor(max_workers=worker_count) as executor:
             futures = {
-                executor.submit(_run_ingestion_job, path, resume_mode, drug_workers): path
+                executor.submit(
+                    _run_ingestion_job,
+                    path,
+                    resume_mode,
+                    drug_workers,
+                    args.delete_on_success,
+                ): path
                 for path in storage_paths
             }
             for future in as_completed(futures):
@@ -452,7 +519,7 @@ def main() -> None:
     else:
         for storage_path in storage_paths:
             results_by_path[storage_path] = _run_ingestion_job(
-                storage_path, resume_mode, drug_workers
+                storage_path, resume_mode, drug_workers, args.delete_on_success
             )
 
     ordered_results = [results_by_path[path] for path in storage_paths]
