@@ -67,6 +67,45 @@ ps aux | grep run_fetch_papers.py
 tail -f logs/fetch_set1.out
 ```
 
+If you started the job while inside `logs/`, the output file will be created in
+the current directory (e.g. `./fetch_set1.out`). In that case:
+
+```bash
+tail -f fetch_set1.out
+```
+
+If you see no output, it may be buffered or waiting for the resume prompt. Use
+this unbuffered, non-interactive command:
+
+```bash
+nohup env PYTHONUNBUFFERED=1 python -u run_fetch_papers.py \
+  --csv-path "data/drug_Data/Drug Repurposing Papers (Drug Names Sets)/Drug Repurposing (Set 1).csv" \
+  --s3-only \
+  --log-dir logs \
+  --run-id set1 \
+  --resume-mode resume \
+  > logs/fetch_set1.out 2>&1 &
+```
+
+Then watch it:
+
+```bash
+tail -f logs/fetch_set1.out
+```
+
+Check the process:
+
+```bash
+ps aux | grep run_fetch_papers.py
+```
+
+Check the output file exists:
+
+```bash
+ls -lh logs/fetch_set1.out
+tail -n 50 logs/fetch_set1.out
+```
+
 Each run also writes a **retrieval log** file (for resume tracking):
 
 ```

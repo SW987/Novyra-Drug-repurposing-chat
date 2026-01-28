@@ -111,6 +111,12 @@ This downloads PDFs into memory and uploads directly to:
 python run_ingestion.py --storage-path data/testdata
 ```
 
+Process multiple drugs concurrently (example: 5 workers):
+
+```bash
+python run_ingestion.py --storage-path data/testdata --drug-workers 5
+```
+
 Resume / restart ingestion using the log:
 
 ```bash
@@ -132,7 +138,10 @@ python -m app.main
 
 FastAPI will listen on port 8000.
 
-## 13) Start Streamlit
+## 13) Start Streamlit (optional, local testing only)
+
+Streamlit is **not required** on EC2 for the FastAPI service. Use it only for
+local testing or if you explicitly want the UI on the instance.
 
 ```bash
 python -m streamlit run streamlit_demo.py
@@ -146,6 +155,8 @@ Basic background run:
 
 ```bash
 nohup python -m app.main > fastapi.log 2>&1 &
+
+# Optional (UI only)
 nohup python -m streamlit run streamlit_demo.py > streamlit.log 2>&1 &
 ```
 

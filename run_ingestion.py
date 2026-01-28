@@ -2,7 +2,7 @@ import argparse
 import csv
 import sys
 import time
-from concurrent.futures import ProcessPoolExecutor, as_completed
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -39,6 +39,29 @@ def _render_progress(current: int, total: int, width: int = 30) -> str:
     return f"[{bar}] {current}/{total}"
 
 
+def _dir_size_bytes(path: Path) -> int:
+    total = 0
+    if not path.exists():
+        return 0
+    for entry in path.rglob("*"):
+        try:
+            if entry.is_file():
+                total += entry.stat().st_size
+        except OSError:
+            continue
+    return total
+
+
+def _format_bytes(size: int) -> str:
+    if size < 1024:
+        return f"{size} B"
+    if size < 1024 * 1024:
+        return f"{size / 1024:.1f} KB"
+    if size < 1024 * 1024 * 1024:
+        return f"{size / (1024 * 1024):.1f} MB"
+    return f"{size / (1024 * 1024 * 1024):.2f} GB"
+
+
 def _parse_storage_paths(raw_paths: List[str]) -> List[str]:
     storage_paths: List[str] = []
     for entry in raw_paths:
@@ -55,7 +78,14 @@ def _append_ingestion_log(csv_path: Path, row: Dict[str, str]) -> None:
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     file_exists = csv_path.exists()
     with csv_path.open("a", newline="", encoding="utf-8") as handle:
-        fieldnames = ["drug", "total_files", "successful", "failed", "processing_seconds"]
+        fieldnames = [
+            "drug",
+            "total_files",
+            "successful",
+            "failed",
+            "processing_seconds",
+            "chroma_size_mb",
+        ]
         writer = csv.DictWriter(handle, fieldnames=fieldnames)
         if not file_exists:
             writer.writeheader()
@@ -104,6 +134,7 @@ def _run_ingestion_batch(
     drug_dirs: Dict[str, str],
     job_label: str,
     log_path: Optional[Path] = None,
+    drug_workers: int = 1,
 ) -> Dict[str, Any]:
     overall_results: Dict[str, Any] = {
         "timestamp": time.time(),
@@ -115,22 +146,38 @@ def _run_ingestion_batch(
     }
 
     total_drugs = len(drug_dirs)
-    for index, (drug_name, directory_path) in enumerate(drug_dirs.items(), start=1):
-        progress = _render_progress(index, total_drugs)
-        _log(f"{progress} Processing drug: {drug_name}", job_label)
-        _log("=" * 50, job_label)
+    _log(f"Preparing to ingest {total_drugs} drugs", job_label)
+    _log(f"Drug workers: {drug_workers}", job_label)
 
+    def _ingest_single(drug_name: str, directory_path: str) -> Dict[str, Any]:
+        _log(f"Processing drug: {drug_name}", job_label)
+        _log("=" * 50, job_label)
         drug_start = time.time()
         drug_result = pipeline.ingest_directory_batch(directory_path, drug_name)
         drug_duration = time.time() - drug_start
         drug_result["drug_name"] = drug_name
         drug_result["directory"] = directory_path
+        drug_result["processing_seconds"] = drug_duration
+        return drug_result
+
+    processed_count = 0
+    chroma_dir = Path(pipeline.settings.chroma_db_dir)
+
+    def _finalize_result(drug_result: Dict[str, Any]) -> None:
+        nonlocal processed_count
+        processed_count += 1
+        progress = _render_progress(processed_count, total_drugs)
+        drug_name = drug_result["drug_name"]
+        _log(f"{progress} Completed drug: {drug_name}", job_label)
 
         overall_results["drugs_processed"].append(drug_name)
         overall_results["total_files"] += drug_result["total_files"]
         overall_results["total_successful"] += drug_result["successful"]
         overall_results["total_failed"] += drug_result["failed"]
         overall_results["drug_results"].append(drug_result)
+
+        chroma_size = _dir_size_bytes(chroma_dir)
+        _log(f"ChromaDB size: {_format_bytes(chroma_size)}", job_label)
 
         if log_path:
             _append_ingestion_log(
@@ -140,9 +187,68 @@ def _run_ingestion_batch(
                     "total_files": str(drug_result["total_files"]),
                     "successful": str(drug_result["successful"]),
                     "failed": str(drug_result["failed"]),
-                    "processing_seconds": f"{drug_duration:.1f}",
+                    "processing_seconds": f"{drug_result['processing_seconds']:.1f}",
+                    "chroma_size_mb": f"{chroma_size / (1024 * 1024):.2f}",
                 },
             )
+
+    if drug_workers <= 1 or total_drugs <= 1:
+        for drug_name, directory_path in drug_dirs.items():
+            drug_result = _ingest_single(drug_name, directory_path)
+            _finalize_result(drug_result)
+    else:
+        items = list(drug_dirs.items())
+        fallback_sequential = False
+        next_index = 0
+        active: Dict[Any, Any] = {}
+
+        with ThreadPoolExecutor(max_workers=drug_workers) as executor:
+            while next_index < len(items) and len(active) < drug_workers:
+                drug_name, directory_path = items[next_index]
+                active[executor.submit(_ingest_single, drug_name, directory_path)] = (
+                    drug_name,
+                    directory_path,
+                )
+                next_index += 1
+
+            while active:
+                for future in as_completed(list(active.keys())):
+                    drug_name, directory_path = active.pop(future)
+                    try:
+                        drug_result = future.result()
+                        _finalize_result(drug_result)
+                    except Exception as exc:
+                        _log(
+                            f"Error ingesting {drug_name}: {exc}. "
+                            "Falling back to sequential for remaining drugs.",
+                            job_label,
+                        )
+                        fallback_sequential = True
+
+                    if fallback_sequential:
+                        continue
+
+                    if next_index < len(items):
+                        next_drug, next_dir = items[next_index]
+                        active[executor.submit(_ingest_single, next_drug, next_dir)] = (
+                            next_drug,
+                            next_dir,
+                        )
+                        next_index += 1
+
+                if fallback_sequential:
+                    break
+
+            if fallback_sequential:
+                remaining_items = items[next_index:]
+                if remaining_items:
+                    _log(
+                        f"Processing {len(remaining_items)} remaining drugs sequentially",
+                        job_label,
+                    )
+                for drug_name, directory_path in remaining_items:
+                    drug_result = _ingest_single(drug_name, directory_path)
+                    _finalize_result(drug_result)
 
     _log("Ingestion complete", job_label)
     _log(f"Total PDFs processed: {overall_results['total_files']}", job_label)
@@ -151,7 +257,9 @@ def _run_ingestion_batch(
     return overall_results
 
 
-def _run_ingestion_job(storage_path: str, resume_mode: str = "ask") -> Dict[str, Any]:
+def _run_ingestion_job(
+    storage_path: str, resume_mode: str = "ask", drug_workers: int = 1
+) -> Dict[str, Any]:
     job_label = Path(storage_path).name or storage_path
     _log(f"Starting ingestion job for {storage_path}", job_label)
     load_dotenv()
@@ -205,7 +313,13 @@ def _run_ingestion_job(storage_path: str, resume_mode: str = "ask") -> Dict[str,
         }
 
     pipeline = PDFIngestionPipeline(settings)
-    results = _run_ingestion_batch(pipeline, drug_dirs, job_label, log_path=log_path)
+    results = _run_ingestion_batch(
+        pipeline,
+        drug_dirs,
+        job_label,
+        log_path=log_path,
+        drug_workers=drug_workers,
+    )
     results["storage_path"] = str(docs_dir)
     return results
 
@@ -225,6 +339,8 @@ def _run_s3_ingestion_job(bucket: str, prefix: str, region: Optional[str]) -> Di
     collection = init_vector_store(settings)
     results = ingest_pdfs_from_s3(bucket, prefix, settings, collection, region=region)
     results["storage_path"] = job_label
+    chroma_size = _dir_size_bytes(Path(settings.chroma_db_dir))
+    _log(f"ChromaDB size: {_format_bytes(chroma_size)}", job_label)
     return results
 
 
@@ -276,6 +392,12 @@ def main() -> None:
         help="Number of parallel ingestion jobs (1 = sequential)",
     )
     parser.add_argument(
+        "--drug-workers",
+        type=int,
+        default=1,
+        help="Number of drugs to process concurrently within a job",
+    )
+    parser.add_argument(
         "--resume-mode",
         choices=["ask", "resume", "restart"],
         default="ask",
@@ -307,6 +429,7 @@ def main() -> None:
             resume_mode = "resume"
 
     max_workers = max(1, args.max_workers)
+    drug_workers = max(1, args.drug_workers)
     _log("Starting dedicated ingestion script")
 
     results_by_path: Dict[str, Dict[str, Any]] = {}
@@ -315,7 +438,7 @@ def main() -> None:
         _log(f"Running {len(storage_paths)} ingestion jobs with {worker_count} workers")
         with ProcessPoolExecutor(max_workers=worker_count) as executor:
             futures = {
-                executor.submit(_run_ingestion_job, path, resume_mode): path
+                executor.submit(_run_ingestion_job, path, resume_mode, drug_workers): path
                 for path in storage_paths
             }
             for future in as_completed(futures):
@@ -328,7 +451,9 @@ def main() -> None:
                     results_by_path[path] = _error_result(path, message)
     else:
         for storage_path in storage_paths:
-            results_by_path[storage_path] = _run_ingestion_job(storage_path, resume_mode)
+            results_by_path[storage_path] = _run_ingestion_job(
+                storage_path, resume_mode, drug_workers
+            )
 
     ordered_results = [results_by_path[path] for path in storage_paths]
     if len(ordered_results) == 1:

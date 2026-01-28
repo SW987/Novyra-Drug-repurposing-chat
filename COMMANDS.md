@@ -118,6 +118,12 @@ Custom storage path:
 python run_ingestion.py --storage-path .\data\testdata
 ```
 
+Process drugs concurrently (5 workers):
+
+```powershell
+python run_ingestion.py --storage-path .\data\testdata --drug-workers 5
+```
+
 Multiple storage paths (run jobs in parallel):
 
 ```powershell
