@@ -173,7 +173,7 @@ nohup python -m streamlit run streamlit_demo.py > streamlit.log 2>&1 &
 
 - FastAPI health:
   ```bash
-  curl http://localhost:8000/health
+  curl http://localhost:8000/drug_discovery/health
   ```
 - Streamlit UI:
   - `http://EC2_PUBLIC_IP:8501`
@@ -185,7 +185,7 @@ ssh -i /path/to/key.pem -L 8000:localhost:8000 -L 8501:localhost:8501 ubuntu@EC2
 ```
 
 Then open:
-- `http://localhost:8000/health`
+- `http://localhost:8000/drug_discovery/health`
 - `http://localhost:8501`
 
 ## 16) Notes on storage strategy

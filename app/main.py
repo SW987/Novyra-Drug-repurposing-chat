@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from contextlib import asynccontextmanager
@@ -79,6 +79,8 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+router = APIRouter(prefix="/drug_discovery")
+
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -89,13 +91,13 @@ app.add_middleware(
 )
 
 
-@app.get("/health", response_model=HealthResponse)
+@router.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint."""
     return HealthResponse(status="healthy")
 
 
-@app.post("/chat", response_model=ChatResponse)
+@router.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(
     request: ChatRequest,
     settings: Settings = Depends(get_settings)
@@ -144,7 +146,7 @@ async def chat_endpoint(
         raise HTTPException(status_code=500, detail=f"Error processing chat request: {error_msg}")
 
 
-@app.post("/chat-by-drug-name", response_model=ChatResponse)
+@router.post("/chat-by-drug-name", response_model=ChatResponse)
 async def chat_by_drug_name_endpoint(
     request: ChatByDrugNameRequest,
     settings: Settings = Depends(get_settings)
@@ -199,7 +201,7 @@ async def chat_by_drug_name_endpoint(
         raise HTTPException(status_code=500, detail=f"Error processing chat request: {error_msg}")
 
 
-@app.post("/ingest", response_model=IngestResponse)
+@router.post("/ingest", response_model=IngestResponse)
 async def ingest_document(
     request: IngestRequest,
     settings: Settings = Depends(get_settings)
@@ -240,7 +242,7 @@ async def ingest_document(
         raise HTTPException(status_code=500, detail=f"Error ingesting document: {str(e)}")
 
 
-@app.post("/ingest-pdfs", response_model=IngestStatusResponse)
+@router.post("/ingest-pdfs", response_model=IngestStatusResponse)
 async def ingest_pdfs(
     settings: Settings = Depends(get_settings)
 ):
@@ -266,7 +268,7 @@ async def ingest_pdfs(
         raise HTTPException(status_code=500, detail=f"Error ingesting PDFs: {str(e)}")
 
 
-@app.get("/drugs")
+@router.get("/drugs")
 async def list_drugs(
     settings: Settings = Depends(get_settings)
 ):
@@ -290,6 +292,9 @@ async def startup_event():
     """Application startup event."""
     print("Drug Repurposing Chat API starting up...")
     print("Make sure to set your GEMINI_API_KEY in .env file")
+
+
+app.include_router(router)
 
 
 if __name__ == "__main__":
