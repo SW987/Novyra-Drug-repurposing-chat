@@ -79,7 +79,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-router = APIRouter(prefix="/drug_discovery")
+router = APIRouter(prefix="/drug_repurposing_chat")
 
 # Add CORS middleware
 app.add_middleware(

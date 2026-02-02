@@ -4,8 +4,8 @@ Small reference for backend integration and testing.
 
 ## Base URL
 
-- Local (SSH tunnel): `http://localhost:8123/drug_discovery`
-- Public (if SG allows): `http://<EC2_PUBLIC_IP>:8123/drug_discovery`
+- Local (SSH tunnel): `http://localhost:8123/drug_repurposing_chat`
+- Public (if SG allows): `http://<EC2_PUBLIC_IP>:8123/drug_repurposing_chat`
 
 ## Common headers
 
@@ -129,7 +129,7 @@ Response:
 ## Example curl
 
 ```bash
-curl -s http://localhost:8123/drug_discovery/chat-by-drug-name \
+curl -s http://localhost:8123/drug_repurposing_chat/chat-by-drug-name \
   -H "Content-Type: application/json" \
   -d '{"session_id":"test-1","drug_name":"aspirin","message":"What is the name of drug being discussed here?"}'
 ```
