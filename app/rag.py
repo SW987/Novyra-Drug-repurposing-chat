@@ -14,7 +14,7 @@ def get_gemini_client(settings: Settings) -> genai:
     return genai
 
 
-def embed_query(query: str, client: genai, model: str) -> List[float]:
+def embed_query(query: str, client: genai, model: str, expected_dim: int) -> List[float]:
     """
     Generate embedding for a query string using Gemini.
 
@@ -24,7 +24,7 @@ def embed_query(query: str, client: genai, model: str) -> List[float]:
         model: Embedding model name
 
     Returns:
-        Embedding vector (guaranteed 768 dimensions)
+        Embedding vector (validated against expected_dim)
     """
     result = genai.embed_content(
         model=model,
@@ -32,9 +32,10 @@ def embed_query(query: str, client: genai, model: str) -> List[float]:
         task_type="retrieval_query"
     )
     embedding = result['embedding']
-    # DEMO GUARANTEE: Verify dimensions
-    if len(embedding) != 768:
-        raise ValueError(f"Query embedding dimension mismatch! Expected 768, got {len(embedding)}")
+    if len(embedding) != expected_dim:
+        raise ValueError(
+            f"Query embedding dimension mismatch! Expected {expected_dim}, got {len(embedding)}"
+        )
     return embedding
 
 
@@ -82,7 +83,12 @@ def retrieve_relevant_chunks(
     """
     # Get Gemini client and embed query
     client = get_gemini_client(settings)
-    query_embedding = embed_query(query, client, settings.gemini_embedding_model)
+    query_embedding = embed_query(
+        query,
+        client,
+        settings.gemini_embedding_model,
+        settings.gemini_embedding_dimension,
+    )
 
     # Build filter
     where_filter = build_filter(drug_id, doc_id)
