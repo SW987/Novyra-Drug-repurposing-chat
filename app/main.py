@@ -4,6 +4,7 @@ import uvicorn
 from contextlib import asynccontextmanager
 import time
 import threading
+from datetime import datetime
 
 from .config import Settings, get_settings
 from .vector_store import init_vector_store
@@ -28,6 +29,11 @@ _drugs_cache: dict[str, object] = {
     "drug_aliases": {},
 }
 _drugs_cache_lock = threading.Lock()
+
+
+def _log(message: str) -> None:
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"[{timestamp}] {message}")
 
 
 def _load_collection_metadatas(collection) -> list[dict]:
@@ -59,16 +65,26 @@ def _load_collection_metadatas(collection) -> list[dict]:
 def _refresh_drugs_cache(settings: Settings) -> list[str]:
     global collection, drug_ids, drug_aliases
     if collection is None:
+        _log("Drug cache refresh skipped: collection not initialized")
         return []
 
-    metadatas = _load_collection_metadatas(collection)
-    if metadatas:
-        drug_ids, drug_aliases = build_drug_lookup_from_metadatas(metadatas)
-    else:
-        # Fallback to local docs only if no metadata exists yet.
-        local_ids, local_aliases = build_drug_lookup(settings.docs_dir)
-        drug_ids = local_ids
-        drug_aliases = local_aliases
+    try:
+        _log("Refreshing drug cache from Chroma metadata")
+        metadatas = _load_collection_metadatas(collection)
+        if metadatas:
+            drug_ids, drug_aliases = build_drug_lookup_from_metadatas(metadatas)
+            _log(f"Loaded {len(drug_ids)} drugs from Chroma metadata")
+        else:
+            # Fallback to local docs only if no metadata exists yet.
+            _log("No Chroma metadata found; falling back to local docs")
+            local_ids, local_aliases = build_drug_lookup(settings.docs_dir)
+            drug_ids = local_ids
+            drug_aliases = local_aliases
+            _log(f"Loaded {len(drug_ids)} drugs from local docs")
+    except Exception as exc:
+        _log(f"Drug cache refresh failed: {exc}")
+        # Keep existing cache on failure
+        return list(_drugs_cache.get("drugs", []))
 
     drugs = sorted(drug_ids) if drug_ids else []
 
@@ -86,6 +102,8 @@ def _get_drugs_cached(settings: Settings, refresh: bool = False) -> list[str]:
         cached = _drugs_cache.get("drugs", [])
         last_refresh = _drugs_cache.get("timestamp", 0.0) or 0.0
 
+        if refresh:
+            _log("Forced drug cache refresh requested")
         if refresh or not cached or (ttl == 0) or (now - last_refresh > ttl):
             return _refresh_drugs_cache(settings)
 
@@ -102,15 +120,15 @@ async def lifespan(app: FastAPI):
     collection = init_vector_store(settings)
     genai.configure(api_key=settings.gemini_api_key) # Configure Gemini client globally
     _refresh_drugs_cache(settings)
-    print(f"Initialized vector store at {settings.chroma_db_dir}")
-    print(f"Collection: {settings.chroma_collection_name}")
-    print(f"PDF source directory: {settings.docs_dir}")
-    print(f"Resolved {len(drug_ids)} drug ids for name lookup")
+    _log(f"Initialized vector store at {settings.chroma_db_dir}")
+    _log(f"Collection: {settings.chroma_collection_name}")
+    _log(f"PDF source directory: {settings.docs_dir}")
+    _log(f"Resolved {len(drug_ids)} drug ids for name lookup")
 
     yield
 
     # Shutdown
-    print("Shutting down application")
+    _log("Shutting down application")
 
 
 app = FastAPI(
@@ -217,6 +235,7 @@ async def chat_by_drug_name_endpoint(
                 allow_fallback=not drug_ids
             )
         if not drug_id:
+            _log(f"Drug name not found: {request.drug_name}")
             raise HTTPException(
                 status_code=404,
                 detail="Unknown drug name. Use /drugs or /chat with a drug_id."
@@ -328,6 +347,7 @@ async def list_drugs(
     """
     global collection
     if collection is None:
+        _log("Drug list requested but collection not initialized")
         return {"drugs": []}
 
     drugs = _get_drugs_cached(settings, refresh=refresh)
@@ -337,8 +357,8 @@ async def list_drugs(
 @app.on_event("startup")
 async def startup_event():
     """Application startup event."""
-    print("Drug Repurposing Chat API starting up...")
-    print("Make sure to set your GEMINI_API_KEY in .env file")
+    _log("Drug Repurposing Chat API starting up...")
+    _log("Make sure to set your GEMINI_API_KEY in .env file")
 
 
 app.include_router(router)
