@@ -105,7 +105,17 @@ def _save_cache_to_disk() -> None:
         _log(f"⚠️  Failed to save cache to disk: {e}")
 
 
-def _load_collection_metadatas(collection) -> list[dict]:
+def _load_collection_metadatas(collection, max_drugs: int = 0) -> list[dict]:
+    """
+    Load metadata from collection, optionally stopping after finding max_drugs unique drugs.
+
+    Args:
+        collection: ChromaDB collection
+        max_drugs: If > 0, stop after finding this many unique drugs (0 = load all)
+
+    Returns:
+        List of metadata dictionaries
+    """
     try:
         total = collection.count()
     except Exception:
@@ -117,6 +127,9 @@ def _load_collection_metadatas(collection) -> list[dict]:
     page_size = 1000
     offset = 0
     metadatas = []
+    unique_drugs = set()
+
+    _log(f"Loading metadata from {total} chunks (max_drugs={max_drugs or 'unlimited'})...")
 
     while offset < total:
         batch = collection.get(
@@ -125,8 +138,26 @@ def _load_collection_metadatas(collection) -> list[dict]:
             include=["metadatas"]
         )
         batch_metas = batch.get("metadatas") or []
-        metadatas.extend([meta for meta in batch_metas if isinstance(meta, dict)])
+
+        for meta in batch_metas:
+            if isinstance(meta, dict):
+                metadatas.append(meta)
+                # Track unique drugs if limit is set
+                if max_drugs > 0:
+                    drug_id = (meta.get("drug_id") or "").strip().lower()
+                    if drug_id:
+                        unique_drugs.add(drug_id)
+
         offset += page_size
+
+        # Early exit if we've found enough unique drugs
+        if max_drugs > 0 and len(unique_drugs) >= max_drugs:
+            _log(f"✅ Found {len(unique_drugs)} unique drugs after scanning {len(metadatas)} chunks - stopping early")
+            break
+
+        # Progress logging for large collections
+        if offset % 10000 == 0:
+            _log(f"  Scanned {offset}/{total} chunks... (found {len(unique_drugs)} unique drugs so far)")
 
     return metadatas
 
@@ -142,10 +173,15 @@ def _refresh_drugs_cache(settings: Settings, save_to_disk: bool = True) -> list[
         return []
 
     try:
-        _log("🔄 Refreshing drug cache from Chroma metadata (this may take a while...)")
+        max_drugs = settings.max_drugs_to_load
+        if max_drugs > 0:
+            _log(f"🔄 Refreshing drug cache (limited to {max_drugs} drugs for faster startup)")
+        else:
+            _log("🔄 Refreshing drug cache from Chroma metadata (this may take a while...)")
+
         start_time = time.time()
 
-        metadatas = _load_collection_metadatas(collection)
+        metadatas = _load_collection_metadatas(collection, max_drugs=max_drugs)
         if metadatas:
             drug_ids, drug_aliases = build_drug_lookup_from_metadatas(metadatas)
             elapsed = time.time() - start_time

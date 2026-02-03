@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     chroma_collection_name: str = "drug_docs"
     docs_dir: str = "./data/docs"
     drugs_cache_ttl_seconds: int = 300
+    max_drugs_to_load: int = 0  # 0 = unlimited, >0 = limit to N drugs for faster startup
     s3_bucket: Optional[str] = None
     s3_prefix: str = ""
     s3_region: Optional[str] = None
