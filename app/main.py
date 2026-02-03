@@ -5,6 +5,8 @@ from contextlib import asynccontextmanager
 import time
 import threading
 from datetime import datetime
+import json
+from pathlib import Path
 
 from .config import Settings, get_settings
 from .vector_store import init_vector_store
@@ -27,13 +29,80 @@ _drugs_cache: dict[str, object] = {
     "timestamp": 0.0,
     "drug_ids": set(),
     "drug_aliases": {},
+    "loaded_from_disk": False,
 }
 _drugs_cache_lock = threading.Lock()
+_background_refresh_thread = None
+
+# Cache file path (relative to project root)
+CACHE_FILE_PATH = Path("data/drugs_cache.json")
 
 
 def _log(message: str) -> None:
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{timestamp}] {message}")
+
+
+def _load_cache_from_disk() -> bool:
+    """Load drug cache from disk file if it exists. Returns True if loaded successfully."""
+    global drug_ids, drug_aliases
+
+    if not CACHE_FILE_PATH.exists():
+        _log("No cache file found on disk")
+        return False
+
+    try:
+        with open(CACHE_FILE_PATH, 'r') as f:
+            data = json.load(f)
+
+        drugs_list = data.get("drugs", [])
+        timestamp = data.get("timestamp", 0.0)
+
+        # Reconstruct drug_ids and drug_aliases from saved data
+        drug_ids_list = data.get("drug_ids", [])
+        drug_aliases_dict = data.get("drug_aliases", {})
+
+        # Convert back to proper types
+        drug_ids = set(drug_ids_list)
+        drug_aliases = {k: set(v) for k, v in drug_aliases_dict.items()}
+
+        _drugs_cache["drugs"] = drugs_list
+        _drugs_cache["timestamp"] = timestamp
+        _drugs_cache["drug_ids"] = drug_ids
+        _drugs_cache["drug_aliases"] = drug_aliases
+        _drugs_cache["loaded_from_disk"] = True
+
+        age_seconds = time.time() - timestamp
+        _log(f"✅ Loaded {len(drugs_list)} drugs from cache file (age: {age_seconds:.0f}s)")
+        return True
+
+    except Exception as e:
+        _log(f"⚠️  Failed to load cache from disk: {e}")
+        return False
+
+
+def _save_cache_to_disk() -> None:
+    """Save drug cache to disk file."""
+    try:
+        CACHE_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+
+        # Convert sets to lists for JSON serialization
+        data = {
+            "drugs": _drugs_cache.get("drugs", []),
+            "timestamp": _drugs_cache.get("timestamp", time.time()),
+            "drug_ids": list(_drugs_cache.get("drug_ids", set())),
+            "drug_aliases": {
+                k: list(v) for k, v in _drugs_cache.get("drug_aliases", {}).items()
+            }
+        }
+
+        with open(CACHE_FILE_PATH, 'w') as f:
+            json.dump(data, f, indent=2)
+
+        _log(f"💾 Saved cache to disk: {len(data['drugs'])} drugs")
+
+    except Exception as e:
+        _log(f"⚠️  Failed to save cache to disk: {e}")
 
 
 def _load_collection_metadatas(collection) -> list[dict]:
@@ -62,68 +131,120 @@ def _load_collection_metadatas(collection) -> list[dict]:
     return metadatas
 
 
-def _refresh_drugs_cache(settings: Settings) -> list[str]:
+def _refresh_drugs_cache(settings: Settings, save_to_disk: bool = True) -> list[str]:
+    """
+    Refresh drug cache from Chroma metadata (slow operation).
+    Optionally saves to disk after refresh.
+    """
     global collection, drug_ids, drug_aliases
     if collection is None:
         _log("Drug cache refresh skipped: collection not initialized")
         return []
 
     try:
-        _log("Refreshing drug cache from Chroma metadata")
+        _log("🔄 Refreshing drug cache from Chroma metadata (this may take a while...)")
+        start_time = time.time()
+
         metadatas = _load_collection_metadatas(collection)
         if metadatas:
             drug_ids, drug_aliases = build_drug_lookup_from_metadatas(metadatas)
-            _log(f"Loaded {len(drug_ids)} drugs from Chroma metadata")
+            elapsed = time.time() - start_time
+            _log(f"✅ Loaded {len(drug_ids)} drugs from Chroma metadata in {elapsed:.1f}s")
         else:
             # Fallback to local docs only if no metadata exists yet.
             _log("No Chroma metadata found; falling back to local docs")
             local_ids, local_aliases = build_drug_lookup(settings.docs_dir)
             drug_ids = local_ids
             drug_aliases = local_aliases
-            _log(f"Loaded {len(drug_ids)} drugs from local docs")
+            elapsed = time.time() - start_time
+            _log(f"✅ Loaded {len(drug_ids)} drugs from local docs in {elapsed:.1f}s")
     except Exception as exc:
-        _log(f"Drug cache refresh failed: {exc}")
+        _log(f"❌ Drug cache refresh failed: {exc}")
         # Keep existing cache on failure
         return list(_drugs_cache.get("drugs", []))
 
     drugs = sorted(drug_ids) if drug_ids else []
 
-    _drugs_cache["drugs"] = drugs
-    _drugs_cache["timestamp"] = time.time()
-    _drugs_cache["drug_ids"] = set(drug_ids)
-    _drugs_cache["drug_aliases"] = dict(drug_aliases)
+    with _drugs_cache_lock:
+        _drugs_cache["drugs"] = drugs
+        _drugs_cache["timestamp"] = time.time()
+        _drugs_cache["drug_ids"] = set(drug_ids)
+        _drugs_cache["drug_aliases"] = dict(drug_aliases)
+
+        if save_to_disk:
+            _save_cache_to_disk()
+
     return drugs
 
 
 def _get_drugs_cached(settings: Settings, refresh: bool = False) -> list[str]:
+    """
+    Get cached drug list. Uses disk cache if available, otherwise triggers refresh.
+    """
     ttl = max(0, settings.drugs_cache_ttl_seconds)
     now = time.time()
+
     with _drugs_cache_lock:
         cached = _drugs_cache.get("drugs", [])
         last_refresh = _drugs_cache.get("timestamp", 0.0) or 0.0
+        loaded_from_disk = _drugs_cache.get("loaded_from_disk", False)
+
+        # If loaded from disk and not expired, return it
+        if loaded_from_disk and cached and not refresh and (ttl == 0 or now - last_refresh <= ttl):
+            return list(cached)
 
         if refresh:
             _log("Forced drug cache refresh requested")
+
         if refresh or not cached or (ttl == 0) or (now - last_refresh > ttl):
-            return _refresh_drugs_cache(settings)
+            return _refresh_drugs_cache(settings, save_to_disk=True)
 
         return list(cached)
+
+
+def _background_refresh_worker(settings: Settings):
+    """Background thread worker to refresh drug cache without blocking startup."""
+    try:
+        _log("🔄 Starting background drug cache refresh...")
+        _refresh_drugs_cache(settings, save_to_disk=True)
+        _log("✅ Background cache refresh completed")
+    except Exception as e:
+        _log(f"❌ Background cache refresh failed: {e}")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan manager for startup and shutdown."""
-    global collection, settings, drug_ids, drug_aliases
+    global collection, settings, drug_ids, drug_aliases, _background_refresh_thread
 
     # Startup
+    _log("🚀 Starting Drug Repurposing Chat API...")
     settings = get_settings()
     collection = init_vector_store(settings)
     genai.configure(api_key=settings.gemini_api_key) # Configure Gemini client globally
-    _refresh_drugs_cache(settings)
-    _log(f"Initialized vector store at {settings.chroma_db_dir}")
-    _log(f"Collection: {settings.chroma_collection_name}")
-    _log(f"PDF source directory: {settings.docs_dir}")
-    _log(f"Resolved {len(drug_ids)} drug ids for name lookup")
+
+    _log(f"📁 Vector store: {settings.chroma_db_dir}")
+    _log(f"📚 Collection: {settings.chroma_collection_name}")
+    _log(f"📄 PDF source: {settings.docs_dir}")
+
+    # Try to load cache from disk (instant startup!)
+    cache_loaded = _load_cache_from_disk()
+
+    if cache_loaded:
+        _log(f"✅ Startup complete with {len(drug_ids)} drugs from cache")
+        # Start background refresh to update cache
+        _background_refresh_thread = threading.Thread(
+            target=_background_refresh_worker,
+            args=(settings,),
+            daemon=True
+        )
+        _background_refresh_thread.start()
+        _log("📡 Background cache refresh started (non-blocking)")
+    else:
+        # No cache file - do initial refresh (only happens once)
+        _log("⚠️  No cache file found - performing initial drug cache refresh...")
+        _refresh_drugs_cache(settings, save_to_disk=True)
+        _log(f"✅ Startup complete with {len(drug_ids)} drugs")
 
     yield
 

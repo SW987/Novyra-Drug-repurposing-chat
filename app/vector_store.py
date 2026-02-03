@@ -44,16 +44,22 @@ def init_vector_store(settings: Settings) -> Collection:
         embedding_function=gemini_ef  # Explicitly set the custom embedding function
     )
 
-    # Verify embedding dimensions to prevent collection mismatches
-    test_embedding = gemini_ef(["test query for dimension verification"])
-    expected_dim = settings.gemini_embedding_dimension
-    if len(test_embedding[0]) != expected_dim:
-        raise ValueError(
-            "Embedding dimension mismatch! "
-            f"Expected {expected_dim}, got {len(test_embedding[0])}"
-        )
+    # Only verify dimensions if collection is empty (first-time setup)
+    # This avoids expensive API calls on every startup
+    count = collection.count()
+    if count == 0:
+        print("⚠️  Empty collection detected - verifying embedding dimensions...")
+        test_embedding = gemini_ef(["test query for dimension verification"])
+        expected_dim = settings.gemini_embedding_dimension
+        if len(test_embedding[0]) != expected_dim:
+            raise ValueError(
+                "Embedding dimension mismatch! "
+                f"Expected {expected_dim}, got {len(test_embedding[0])}"
+            )
+        print(f"✅ Verified: Embedding function produces {len(test_embedding[0])}-dimensional vectors")
+    else:
+        print(f"✅ Collection loaded with {count} chunks (dimension verification skipped)")
 
-    print(f"✅ Verified: Embedding function produces {len(test_embedding[0])}-dimensional vectors")
     return collection
 
 
