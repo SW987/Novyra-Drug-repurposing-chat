@@ -2,6 +2,8 @@ from fastapi import FastAPI, HTTPException, Depends, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from contextlib import asynccontextmanager
+import time
+import threading
 
 from .config import Settings, get_settings
 from .vector_store import init_vector_store
@@ -19,6 +21,8 @@ collection = None
 settings = None
 drug_ids = set()
 drug_aliases = {}
+_drugs_cache: dict[str, object] = {"drugs": [], "timestamp": 0.0}
+_drugs_cache_lock = threading.Lock()
 
 
 def _load_collection_metadatas(collection) -> list[dict]:
@@ -45,6 +49,36 @@ def _load_collection_metadatas(collection) -> list[dict]:
         offset += page_size
 
     return metadatas
+
+
+def _refresh_drugs_cache(settings: Settings) -> list[str]:
+    global collection, drug_ids, drug_aliases
+    if collection is None:
+        return []
+
+    metadatas = _load_collection_metadatas(collection)
+    if metadatas:
+        drug_ids, drug_aliases = build_drug_lookup_from_metadatas(metadatas)
+        drugs = sorted(drug_ids)
+    else:
+        drugs = sorted(drug_ids) if drug_ids else []
+
+    _drugs_cache["drugs"] = drugs
+    _drugs_cache["timestamp"] = time.time()
+    return drugs
+
+
+def _get_drugs_cached(settings: Settings, refresh: bool = False) -> list[str]:
+    ttl = max(0, settings.drugs_cache_ttl_seconds)
+    now = time.time()
+    with _drugs_cache_lock:
+        cached = _drugs_cache.get("drugs", [])
+        last_refresh = _drugs_cache.get("timestamp", 0.0) or 0.0
+
+        if refresh or not cached or (ttl == 0) or (now - last_refresh > ttl):
+            return _refresh_drugs_cache(settings)
+
+        return list(cached)
 
 
 @asynccontextmanager
@@ -270,7 +304,8 @@ async def ingest_pdfs(
 
 @router.get("/drugs")
 async def list_drugs(
-    settings: Settings = Depends(get_settings)
+    settings: Settings = Depends(get_settings),
+    refresh: bool = False,
 ):
     """
     List all available drugs in the system.
@@ -279,12 +314,8 @@ async def list_drugs(
     if collection is None:
         return {"drugs": []}
 
-    metadatas = _load_collection_metadatas(collection)
-    if not metadatas:
-        return {"drugs": []}
-
-    drug_ids, _aliases = build_drug_lookup_from_metadatas(metadatas)
-    return {"drugs": sorted(drug_ids)}
+    drugs = _get_drugs_cached(settings, refresh=refresh)
+    return {"drugs": drugs}
 
 
 @app.on_event("startup")

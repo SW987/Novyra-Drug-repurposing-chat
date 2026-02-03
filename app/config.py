@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     chroma_db_dir: str = "./data/chroma"
     chroma_collection_name: str = "drug_docs"
     docs_dir: str = "./data/docs"
+    drugs_cache_ttl_seconds: int = 300
     s3_bucket: Optional[str] = None
     s3_prefix: str = ""
     s3_region: Optional[str] = None

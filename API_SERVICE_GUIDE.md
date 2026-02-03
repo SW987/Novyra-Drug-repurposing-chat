@@ -28,6 +28,9 @@ Response:
 
 **GET** `/drugs`
 
+Optional query:
+- `?refresh=true` to force a refresh (otherwise cached for a short TTL)
+
 Response:
 ```json
 {"drugs":["aspirin","apomorphine","insulin"]}
