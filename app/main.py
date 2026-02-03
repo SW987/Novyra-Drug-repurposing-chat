@@ -21,7 +21,12 @@ collection = None
 settings = None
 drug_ids = set()
 drug_aliases = {}
-_drugs_cache: dict[str, object] = {"drugs": [], "timestamp": 0.0}
+_drugs_cache: dict[str, object] = {
+    "drugs": [],
+    "timestamp": 0.0,
+    "drug_ids": set(),
+    "drug_aliases": {},
+}
 _drugs_cache_lock = threading.Lock()
 
 
@@ -59,12 +64,18 @@ def _refresh_drugs_cache(settings: Settings) -> list[str]:
     metadatas = _load_collection_metadatas(collection)
     if metadatas:
         drug_ids, drug_aliases = build_drug_lookup_from_metadatas(metadatas)
-        drugs = sorted(drug_ids)
     else:
-        drugs = sorted(drug_ids) if drug_ids else []
+        # Fallback to local docs only if no metadata exists yet.
+        local_ids, local_aliases = build_drug_lookup(settings.docs_dir)
+        drug_ids = local_ids
+        drug_aliases = local_aliases
+
+    drugs = sorted(drug_ids) if drug_ids else []
 
     _drugs_cache["drugs"] = drugs
     _drugs_cache["timestamp"] = time.time()
+    _drugs_cache["drug_ids"] = set(drug_ids)
+    _drugs_cache["drug_aliases"] = dict(drug_aliases)
     return drugs
 
 
@@ -90,11 +101,7 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     collection = init_vector_store(settings)
     genai.configure(api_key=settings.gemini_api_key) # Configure Gemini client globally
-    drug_ids, drug_aliases = build_drug_lookup(settings.docs_dir)
-    if not drug_ids:
-        metadatas = _load_collection_metadatas(collection)
-        if metadatas:
-            drug_ids, drug_aliases = build_drug_lookup_from_metadatas(metadatas)
+    _refresh_drugs_cache(settings)
     print(f"Initialized vector store at {settings.chroma_db_dir}")
     print(f"Collection: {settings.chroma_collection_name}")
     print(f"PDF source directory: {settings.docs_dir}")
@@ -200,6 +207,15 @@ async def chat_by_drug_name_endpoint(
             drug_aliases,
             allow_fallback=not drug_ids
         )
+        if not drug_id:
+            # Refresh from Chroma metadata in case new drugs were ingested.
+            _get_drugs_cached(settings, refresh=True)
+            drug_id = resolve_drug_id(
+                request.drug_name,
+                drug_ids,
+                drug_aliases,
+                allow_fallback=not drug_ids
+            )
         if not drug_id:
             raise HTTPException(
                 status_code=404,
