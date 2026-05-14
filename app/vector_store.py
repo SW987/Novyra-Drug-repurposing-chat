@@ -1,14 +1,26 @@
+"""
+Vector store interface built on ChromaDB.
+
+Handles:
+- Initialising the persistent ChromaDB client and collection.
+- A custom ChromaDB-compatible embedding function backed by Google Gemini.
+- Upserting and querying document chunks with metadata filtering.
+
+The Gemini API key and model names are sourced exclusively from the
+Settings object — never hardcoded here.
+"""
+
 import chromadb
 from chromadb import Collection
 from typing import Dict, List, Any, Optional
 from .config import Settings
 import chromadb.utils.embedding_functions as embedding_functions
-import google.generativeai as genai # Needed for custom embedding function
+import google.generativeai as genai
 
-# Removed: from .ingestion import get_gemini_client # This caused circular import
 
-# Custom Embedding Function for Google Gemini
 class GeminiEmbeddingFunction(embedding_functions.EmbeddingFunction):
+    """ChromaDB-compatible embedding function that delegates to Google Gemini."""
+
     def __init__(self, api_key: str, model_name: str):
         genai.configure(api_key=api_key)
         self.model_name = model_name
@@ -77,6 +89,11 @@ def upsert_chunks(
         texts: List of text chunks
         metadatas: List of metadata dictionaries for each chunk
         ids: List of unique IDs for each chunk
+
+    Note:
+        ChromaDB's `add` raises on duplicate IDs. Re-ingesting the same
+        document will produce duplicate-ID errors unless the collection is
+        cleared first or IDs are checked beforehand.
     """
     collection.add(
         documents=texts,

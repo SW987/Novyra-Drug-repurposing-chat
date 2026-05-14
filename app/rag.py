@@ -1,3 +1,18 @@
+"""
+Retrieval-Augmented Generation (RAG) pipeline for drug repurposing chat.
+
+Flow for each user message:
+1. Embed the query with Gemini (retrieval_query task type).
+2. Retrieve the top-K most relevant chunks from ChromaDB, applying
+   per-document diversity capping to avoid over-representing a single paper.
+3. Optionally enrich the query with recent conversation history.
+4. Build a prompt that combines the retrieved context and history, then call
+   the Gemini generative model.
+5. Strip internal context labels from the response and append PMC citations.
+
+The Gemini API key and model names are taken from Settings — never hardcoded.
+"""
+
 import google.generativeai as genai
 import re
 from typing import List, Dict, Any, Optional, Union, Set

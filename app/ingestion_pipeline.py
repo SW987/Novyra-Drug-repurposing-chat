@@ -1,7 +1,21 @@
 #!/usr/bin/env python3
 """
-Automated PDF Ingestion Pipeline for Drug Repurposing Research
-Integrates with existing PDF download/validation systems
+High-level orchestration pipeline for ingesting drug repurposing PDFs.
+
+Wraps the lower-level ingestion functions from ingestion.py and the paper
+download utilities from paper_fetcher.py into two main entry points:
+
+- PDFIngestionPipeline: class-based interface for validating and ingesting
+  individual files or entire directories, with optional PubMed paper fetching.
+- run_ingestion_pipeline: convenience function for batch-processing multiple
+  drug directories in one call.
+
+Directory structure expected under settings.docs_dir:
+    <docs_dir>/
+    ├── aspirin/
+    │   └── aspirin_repurposing_PMC11242460.pdf
+    └── metformin/
+        └── metformin_repurposing_PMC9876543.pdf
 """
 
 import time
@@ -245,51 +259,35 @@ def run_ingestion_pipeline(drug_directories: Dict[str, str]) -> Dict[str, Any]:
     return overall_results
 
 
-# Example usage functions
-def example_usage_your_directory():
-    """Example using your existing directory structure."""
+def example_usage_from_settings():
+    """
+    Example: ingest all PDFs that are already placed under settings.docs_dir.
+
+    Set DOCS_DIR in your .env file (or environment) to the root folder that
+    contains per-drug subdirectories, then run:
+
+        python -m app.ingestion_pipeline
+    """
+    settings = get_settings()
+    docs_dir = settings.docs_dir
+
+    # Build the drug→directory map from whatever subfolders already exist
+    from pathlib import Path as _Path
     drug_directories = {
-        "aspirin": r"C:\Users\saadw\Downloads\repurposing research papers for 3 drugs\aspirin repurposing",
-        "apomorphine": r"C:\Users\saadw\Downloads\repurposing research papers for 3 drugs\apomorphine repurposing",
-        "insulin": r"C:\Users\saadw\Downloads\repurposing research papers for 3 drugs\insulin repurposing"
+        folder.name: str(folder)
+        for folder in _Path(docs_dir).iterdir()
+        if folder.is_dir()
     }
+
+    if not drug_directories:
+        _log(f"No drug subdirectories found under {docs_dir}")
+        return {}
 
     results = run_ingestion_pipeline(drug_directories)
     return results
 
 
-def example_usage_integrated_download():
-    """
-    Example of how to integrate with your download system.
-    Modify this to work with your existing PDF download pipeline.
-    """
-    # This would be integrated into your existing download workflow
-
-    # Pseudocode for integration:
-    """
-    # 1. Your existing download system finds and downloads PDFs
-    downloaded_pdfs = your_download_function(drug_name, search_terms)
-
-    # 2. For each downloaded PDF, validate and ingest
-    pipeline = PDFIngestionPipeline(get_settings())
-
-    for pdf_info in downloaded_pdfs:
-        result = pipeline.validate_and_ingest_pdf(
-            pdf_info['file_path'],
-            pdf_info['drug_name']
-        )
-
-        if result['success']:
-            print(f"Ingested {pdf_info['title']}")
-        else:
-            print(f"Failed to ingest {pdf_info['title']}: {result['error']}")
-    """
-
-    return {"status": "integration_example"}
-
-
 if __name__ == "__main__":
-    # Run with your existing directory
-    results = example_usage_your_directory()
+    results = example_usage_from_settings()
     _log("Final results:")
     print(results)

@@ -1,3 +1,13 @@
+"""
+Utility helpers shared across the Drug Repurposing Chat application.
+
+Responsibilities:
+- PDF text extraction (file path and raw bytes variants)
+- Overlapping text chunking with sentence-boundary awareness
+- Filename parsing to extract drug/document identifiers
+- Drug ID normalisation (lower-case, underscore-separated)
+"""
+
 import re
 import logging
 import warnings
@@ -23,6 +33,7 @@ class DocumentInfo(NamedTuple):
 
 
 def _normalize_drug_id(drug_id: str) -> str:
+    """Return a canonical drug ID: lower-case, spaces/hyphens collapsed to single underscores."""
     cleaned = drug_id.strip().lower()
     cleaned = re.sub(r"[\s\-]+", "_", cleaned)
     cleaned = re.sub(r"_+", "_", cleaned)

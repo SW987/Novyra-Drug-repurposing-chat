@@ -1,3 +1,18 @@
+"""
+FastAPI application entry point for the Drug Repurposing Chat API.
+
+Startup sequence (managed by the lifespan context manager):
+1. Load settings from environment variables.
+2. Initialise the ChromaDB vector store.
+3. Configure the Gemini client globally.
+4. Attempt to load the drug list from the on-disk JSON cache for instant
+   startup; fall back to a synchronous ChromaDB scan on first run.
+5. Launch a background thread to refresh the cache without blocking requests.
+
+API routes are mounted under the /drug_repurposing_chat prefix via an
+APIRouter so the module can be composed with other routers in larger apps.
+"""
+
 from fastapi import FastAPI, HTTPException, Depends, APIRouter
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -511,11 +526,13 @@ async def list_drugs(
     return {"drugs": drugs}
 
 
+# @app.on_event("startup") is deprecated in FastAPI ≥ 0.93 in favour of the
+# lifespan context manager above. Kept here only as a fallback hint for older
+# deployments; all real startup logic lives in lifespan().
 @app.on_event("startup")
 async def startup_event():
-    """Application startup event."""
     _log("Drug Repurposing Chat API starting up...")
-    _log("Make sure to set your GEMINI_API_KEY in .env file")
+    _log("Make sure GEMINI_API_KEY is set in your .env file")
 
 
 app.include_router(router)

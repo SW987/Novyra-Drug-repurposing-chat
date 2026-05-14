@@ -1,3 +1,10 @@
+"""
+Pydantic request/response schemas for the Drug Repurposing Chat API.
+
+All API input and output shapes are defined here so that FastAPI can
+auto-generate OpenAPI documentation and enforce runtime validation.
+"""
+
 from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any, Union
 

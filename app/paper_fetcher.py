@@ -1,3 +1,19 @@
+"""
+PubMed Central (PMC) paper fetching pipeline for drug repurposing research.
+
+Downloads open-access PDFs from PMC via the NCBI eUtils and Open Access APIs,
+handling TAR/GZIP archives and retrying transient network failures.
+
+Optionally uploads downloaded PDFs to an S3 bucket. All S3 parameters are
+read from Settings — no bucket names or credentials are hardcoded here.
+
+Key public surface:
+- PaperFetchPipeline: class for searching PMC and downloading PDFs for one
+  or multiple drugs, with optional S3 upload.
+- is_valid_pdf / is_valid_pdf_bytes: lightweight validators used before
+  committing a file to storage.
+"""
+
 import gzip
 import io
 import os
@@ -82,6 +98,11 @@ def _get_with_retries(
     max_retries: int = 3,
     backoff_seconds: float = 2.0,
 ) -> Optional[requests.Response]:
+    """
+    GET request with exponential-ish backoff, honouring HTTP 429 rate limits.
+
+    Returns the Response on success, or None after all retries are exhausted.
+    """
     last_error = None
     for attempt in range(1, max_retries + 1):
         try:
@@ -106,6 +127,19 @@ def search_pmc_articles(
     max_retries: int = 3,
     backoff_seconds: float = 2.0,
 ) -> Tuple[List[str], List[str]]:
+    """
+    Search PubMed Central for open-access articles matching a query.
+
+    Args:
+        query: Free-text search query (e.g. "aspirin repurposing").
+        max_results: Maximum number of article IDs to retrieve.
+        max_retries: Retry budget for the eUtils API call.
+        backoff_seconds: Base delay between retries.
+
+    Returns:
+        Tuple of (pmc_ids, article_urls) where pmc_ids are bare numeric IDs
+        (without the "PMC" prefix) and article_urls are full PMC web URLs.
+    """
     url = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi"
 
     params = {
@@ -133,6 +167,12 @@ def get_pdf_link_from_pmcid(
     max_retries: int = 3,
     backoff_seconds: float = 2.0,
 ) -> Optional[str]:
+    """
+    Retrieve a direct PDF download URL for a PMC article via the OA API.
+
+    Returns the href of the first <link format="pdf"> element, or None if the
+    article is not open-access or no PDF link is listed.
+    """
     api_url = f"https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi?id=PMC{pmcid}"
 
     response = _get_with_retries(
@@ -194,6 +234,7 @@ def download_stream_bytes(url: str, timeout: int = 25) -> Optional[bytes]:
 
 
 def extract_pdf_from_tar_gz(tar_path: str, output_path: str) -> bool:
+    """Extract the first PDF found inside a .tar.gz archive to output_path."""
     try:
         with tarfile.open(tar_path, "r:gz") as tar:
             for member in tar.getmembers():
@@ -207,6 +248,7 @@ def extract_pdf_from_tar_gz(tar_path: str, output_path: str) -> bool:
 
 
 def extract_pdf_from_tar_bytes(data: bytes) -> Optional[bytes]:
+    """Extract and return the raw bytes of the first PDF inside an in-memory tar archive."""
     try:
         with tarfile.open(fileobj=io.BytesIO(data), mode="r:*") as tar:
             for member in tar.getmembers():
@@ -234,6 +276,11 @@ def download_pdf(
     retries: int = 3,
     retry_delay: float = 2.0,
 ) -> bool:
+    """
+    Download a PDF from pdf_url to save_path, handling TAR/GZIP transparently.
+
+    Returns True on success (a valid PDF exists at save_path), False otherwise.
+    """
     for attempt in range(1, retries + 1):
         temp_file = save_path + ".tmp"
 
@@ -312,6 +359,11 @@ def download_pdf_bytes(
     retries: int = 3,
     retry_delay: float = 2.0,
 ) -> Optional[bytes]:
+    """
+    Download a PDF into memory, handling TAR/GZIP archives transparently.
+
+    Returns the raw PDF bytes on success, or None on failure.
+    """
     for attempt in range(1, retries + 1):
         try:
             print(f"[INFO] Attempt {attempt}: {pdf_url}")
@@ -645,6 +697,20 @@ class PaperFetchPipeline:
         upload_to_s3: bool = True,
         upload_after: Optional[int] = None,
     ) -> Dict[str, Any]:
+        """
+        Download papers for a list of drugs, sequencing calls to respect rate limits.
+
+        Args:
+            drugs: List of drug names to fetch papers for.
+            max_papers_per_drug: Download cap per drug.
+            max_search_results: PMC search result cap per drug.
+            upload_to_s3: Whether to upload downloaded PDFs to S3.
+            upload_after: Upload to S3 only after this many papers are downloaded
+                          (None = upload immediately after each download).
+
+        Returns:
+            Dict summarising total downloads and per-drug fetch results.
+        """
         overall = {
             "timestamp": time.time(),
             "drugs_processed": [],

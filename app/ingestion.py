@@ -1,5 +1,20 @@
+"""
+PDF ingestion pipeline — text extraction, chunking, embedding, and storage.
+
+Supports three ingestion modes:
+- Local directory: ingest_pdfs_from_directory scans a folder tree of per-drug
+  PDF subfolders and processes each file.
+- S3 bucket: ingest_pdfs_from_s3 streams PDFs directly from S3 without writing
+  to disk.
+- Programmatic single document: ingest_single_document accepts raw text content
+  for API-driven ingestion.
+
+All Gemini calls use credentials from Settings — no keys or model names are
+hardcoded in this module.
+"""
+
 import os
-import time  # Simple timing for chunk/embedding steps
+import time
 from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, Iterable, List, Optional
@@ -65,6 +80,22 @@ def _ingest_text_content(
     source_type: str,
     source_uri: Optional[str] = None,
 ) -> Dict[str, Any]:
+    """
+    Core ingestion helper: chunk → embed → upsert into ChromaDB.
+
+    Args:
+        doc_info: Parsed document metadata (drug_id, doc_id, doc_title).
+        content: Raw extracted text from the PDF.
+        settings: Application settings (embedding model, API key, etc.).
+        collection: ChromaDB collection to write to.
+        file_path: Absolute or S3 URI path to the source PDF (stored in metadata).
+        drug_folder: Parent folder name (e.g. "aspirin repurposing").
+        source_type: Label for the ingestion source ("pdf", "s3", "pdf_bytes").
+        source_uri: Optional S3 URI, stored alongside metadata when provided.
+
+    Returns:
+        Dict with processing statistics or an 'error' key on failure.
+    """
     if not content.strip():
         return {
             "drug_id": doc_info.drug_id,
@@ -238,6 +269,7 @@ def process_pdf_bytes(
 
 
 def _normalize_s3_prefix(prefix: Optional[str]) -> str:
+    """Strip leading and trailing slashes from an S3 key prefix."""
     if not prefix:
         return ""
     return prefix.strip("/")
@@ -248,6 +280,11 @@ def _list_s3_pdf_keys(
     bucket: str,
     prefix: str,
 ) -> Iterable[str]:
+    """
+    Yield all S3 object keys ending in .pdf under the given prefix.
+
+    Uses pagination so arbitrarily large buckets are handled correctly.
+    """
     list_prefix = f"{prefix}/" if prefix else ""
     paginator = s3_client.get_paginator("list_objects_v2")
     kwargs: Dict[str, Any] = {"Bucket": bucket}
@@ -262,6 +299,12 @@ def _list_s3_pdf_keys(
 
 
 def _split_s3_key(prefix: str, key: str) -> tuple[str, str, str]:
+    """
+    Decompose a full S3 key into (drug_folder, filename, relative_key).
+
+    Strips the bucket prefix so that the remaining path mirrors the local
+    docs_dir layout: <drug_folder>/<filename>.pdf.
+    """
     relative_key = key
     if prefix:
         list_prefix = f"{prefix}/"
