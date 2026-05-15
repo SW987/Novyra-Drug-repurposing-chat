@@ -67,7 +67,7 @@ Answer based on the provided content. If the content doesn't contain enough info
     try:
         settings = get_settings()
         genai.configure(api_key=settings.gemini_api_key)
-        model = genai.GenerativeModel('models/gemini-2.0-flash-exp')
+        model = genai.GenerativeModel(settings.gemini_chat_model)
         response = model.generate_content(prompt)
 
         return response.text.strip()

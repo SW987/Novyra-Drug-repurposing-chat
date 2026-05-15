@@ -55,8 +55,10 @@ Thumbs.db
 *.log
 logs/
 
-# Database
-data/chroma/
+# Data folder (PDF corpus, ChromaDB store, runtime caches, drug-list CSVs)
+# All contents are regenerable: PDFs via run_fetch_papers.py, chroma via
+# run_ingestion.py, drugs_cache.json on FastAPI startup.
+data/
 
 # Temporary files
 *.tmp

@@ -18,8 +18,9 @@
 4. Add secrets:
    ```
    GEMINI_API_KEY = "your_actual_api_key_here"
-   GEMINI_EMBEDDING_MODEL = "models/embedding-001"
-   GEMINI_CHAT_MODEL = "models/gemini-2.0-flash-exp"
+   GEMINI_EMBEDDING_MODEL = "<your Gemini embedding model>"
+   GEMINI_EMBEDDING_DIMENSION = "<vector dim of embedding model>"
+   GEMINI_CHAT_MODEL = "<your Gemini chat model>"
    CHROMA_DB_DIR = "./data/chroma"
    CHROMA_COLLECTION_NAME = "drug_docs"
    DOCS_DIR = "./data/docs"

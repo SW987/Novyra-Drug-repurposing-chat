@@ -31,28 +31,38 @@ An API service that answers natural-language questions about drug repurposing by
 
 ## 1. System Overview
 
-The system has two distinct phases of operation:
+The system runs in two distinct phases: an **offline corpus build** (PubMed Central → PDFs → chunks → Gemini embeddings → ChromaDB) and a **FastAPI runtime** (drug-name resolution → query embedding → ChromaDB retrieval → Gemini answer with PMC citations). The corpus is immutable at query time.
 
-**Corpus build** (run once, offline): research papers are fetched from PubMed Central, extracted, chunked, embedded, and stored in a ChromaDB vector database on disk.
+```mermaid
+flowchart LR
+    classDef build   fill:#E8F5E9,stroke:#2E7D32,stroke-width:2px,color:#1B5E20
+    classDef runtime fill:#E3F2FD,stroke:#1565C0,stroke-width:2px,color:#0D47A1
+    classDef store   fill:#FFF3E0,stroke:#E65100,stroke-width:2px,color:#BF360C
+    classDef api     fill:#F3E5F5,stroke:#6A1B9A,stroke-width:2px,color:#4A148C
 
-**Runtime** (the Novyra-facing API): the FastAPI server loads the pre-built vector store, resolves incoming drug names to canonical IDs, embeds each user query, retrieves relevant chunks across multiple papers, and generates a synthesized answer via Gemini. The corpus does not change at query time.
+    subgraph CB["🛠️&nbsp; Corpus Build &nbsp;(offline, one time)"]
+        direction TB
+        P1[PubMed Central<br/>eSearch + OA API]:::build
+        P2[paper_fetcher.py<br/>download • validate]:::build
+        P3[(data/docs/<br/>PDF corpus)]:::store
+        P4[ingestion.py<br/>extract • chunk • embed]:::build
+        P5[(data/chroma/<br/>vector store)]:::store
+        P1 --> P2 --> P3 --> P4 --> P5
+    end
 
-```
-CORPUS BUILD (offline)                     RUNTIME (FastAPI endpoint)
-─────────────────────                      ─────────────────────────
-PubMed Central                             POST /drug_repurposing_chat/chat-by-drug-name
-     │                                              │
-     ▼                                              ▼
-paper_fetcher.py       →   data/docs/       drug_resolver.py  →  canonical drug_id
-     │                                              │
-     ▼                                              ▼
-ingestion.py           →   data/chroma/     rag.py  →  embed query  →  ChromaDB query
-                                                    │
-                                                    ▼
-                                             Gemini GenerativeModel
-                                                    │
-                                                    ▼
-                                             ChatResponse + PMC citations
+    subgraph RT["⚡&nbsp; Runtime &nbsp;(FastAPI endpoint)"]
+        direction TB
+        R1([Novyra client]):::api
+        R2["POST /chat-by-drug-name"]:::api
+        R3[drug_resolver.py<br/>name → canonical drug_id]:::runtime
+        R4[rag.py<br/>embed query • cosine search]:::runtime
+        R5[(ChromaDB<br/>diversity-capped top-k)]:::store
+        R6[Gemini GenerativeModel<br/>synthesize answer]:::runtime
+        R7([ChatResponse<br/>+ PMC citations]):::api
+        R1 --> R2 --> R3 --> R4 --> R5 --> R6 --> R7
+    end
+
+    P5 -. persistent disk .-> R5
 ```
 
 ---
@@ -93,10 +103,7 @@ ingestion.py           →   data/chroma/     rag.py  →  embed query  →  Chr
 └── .env                          Environment variables (gitignored)
 ```
 
-**Files needed at FastAPI runtime only** (corpus already built):
-`app/main.py`, `app/config.py`, `app/vector_store.py`, `app/rag.py`, `app/schemas.py`, `app/utils.py`, `app/ingestion.py`, `app/drug_resolver.py`, `data/chroma/`, `.env`, `requirements.txt`
-
-`app/ingestion_pipeline.py` and `app/paper_fetcher.py` are only used during corpus build and by the Streamlit "custom drug" feature. They are not imported at FastAPI startup.
+`app/ingestion_pipeline.py` and `app/paper_fetcher.py` are corpus-build-only (also used by the Streamlit "custom drug" feature) and are not imported at FastAPI startup. Everything else under `app/` plus `data/chroma/`, `.env`, and `requirements.txt` is needed at runtime.
 
 ---
 
@@ -104,77 +111,75 @@ ingestion.py           →   data/chroma/     rag.py  →  embed query  →  Chr
 
 The corpus must be built before the API can answer any questions. It is a two-phase offline process.
 
+```mermaid
+flowchart TB
+    classDef step  fill:#E8F5E9,stroke:#2E7D32,stroke-width:2px,color:#1B5E20
+    classDef io    fill:#FFF3E0,stroke:#E65100,stroke-width:2px,color:#BF360C
+    classDef gate  fill:#FFFDE7,stroke:#F9A825,stroke-width:2px,color:#F57F17
+    classDef edge  fill:#F3E5F5,stroke:#6A1B9A,stroke-width:2px,color:#4A148C
+
+    Start([CSV of drug names]):::edge
+
+    subgraph PH2["📥&nbsp; Phase 2 — Paper Fetching"]
+        direction TB
+        F1["PMC eSearch<br/>'{drug} repurposing'"]:::step
+        F2[OA API<br/>resolve PDF / TAR URL]:::step
+        F3[Download with retry<br/>3 attempts • expo backoff]:::step
+        F4{is_valid_pdf?<br/>>5KB • %PDF- • %%EOF}:::gate
+        F5[(data/docs/<br/>{drug} repurposing/)]:::io
+        F6[(Optional<br/>S3 mirror)]:::io
+        F1 --> F2 --> F3 --> F4
+        F4 -- valid --> F5
+        F4 -- invalid --> Drop([discard]):::edge
+        F5 -. if S3_BUCKET set .-> F6
+    end
+
+    subgraph PH3["🧬&nbsp; Phase 3 — Ingestion"]
+        direction TB
+        I1[parse_filename<br/>drug_id • doc_id • title]:::step
+        I2[extract_text_from_pdf<br/>PyPDF2]:::step
+        I3[chunk_text<br/>~1000 chars • 200 overlap]:::step
+        I4[Gemini embed each chunk<br/>retrieval_document]:::step
+        I5[upsert_chunks<br/>id • text • vector • metadata]:::step
+        I6[(ChromaDB<br/>drug_docs collection)]:::io
+        I1 --> I2 --> I3 --> I4 --> I5 --> I6
+    end
+
+    Start --> F1
+    F5 --> I1
+    F6 -.-> I1
+```
+
 ### Phase 2 — Paper Fetching
 
-**Entry point:** `run_fetch_papers.py`  
-**Core logic:** `app/paper_fetcher.py` — `PaperFetchPipeline`
+**Entry point:** `run_fetch_papers.py` → `app/paper_fetcher.py:PaperFetchPipeline`. Takes a CSV of drug names, queries PMC for open-access repurposing papers, downloads PDFs, and optionally mirrors them to S3.
 
-Takes a CSV of drug names, queries PubMed Central for open-access repurposing papers, downloads the PDFs, and optionally mirrors them to S3.
-
-#### Step-by-step
-
-**1. PMC Search (`PaperFetchPipeline.search_pmc`)**
-
-Queries the NCBI eSearch API:
+**APIs used** (search term is always `{drug_name} repurposing`):
 ```
-https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi
-  ?db=pmc&term={drug_name}+repurposing&retmax={max_papers}&retmode=json
+eSearch:  https://eutils.ncbi.nlm.nih.gov/entrez/eutils/esearch.fcgi
+            ?db=pmc&term={drug}+repurposing&retmax={n}&retmode=json
+OA API:   https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi?id=PMC{pmc_id}
 ```
-Returns a list of PMC IDs (integers). The search term is always `{drug_name} repurposing`.
+The OA response is parsed for `<link format="pdf">`; if absent, the `tgz` package is downloaded and the PDF extracted from the tarball.
 
-**2. Open-Access check (`fetch_oa_pdf_url`)**
+**Validation (`is_valid_pdf`)**: size > 5 KB, header starts with `%PDF-`, last 10 bytes contain `%%EOF`. Invalid files are discarded.
 
-For each PMC ID, queries the PMC Open Access API to get the FTP package URL:
-```
-https://www.ncbi.nlm.nih.gov/pmc/utils/oa/oa.fcgi?id=PMC{pmc_id}
-```
-Parses the XML response for a `<link format="pdf">` or `<link format="tgz">` element. If a direct PDF link is available it is preferred; otherwise the TAR/GZIP archive is downloaded and the PDF extracted from it.
-
-**3. Download and validate**
-
-PDFs are downloaded via `urllib.request` with retry logic (3 attempts, exponential backoff). After download, `is_valid_pdf` checks:
-- File size > 5 KB
-- First 5 bytes equal `%PDF-`
-- Last 10 bytes contain `%%EOF`
-
-Invalid files are discarded. Valid PDFs are saved to:
+**Output paths:**
 ```
 data/docs/{drug_name} repurposing/{drug_name}_repurposing_PMC{id}.pdf
+s3://{S3_BUCKET}/{S3_PREFIX}/{drug_name} repurposing/{filename}   # if S3_BUCKET set
 ```
-
-**4. Optional S3 upload**
-
-If `S3_BUCKET` is set in `.env`, each validated PDF is uploaded to:
-```
-s3://{S3_BUCKET}/{S3_PREFIX}/{drug_name} repurposing/{filename}
-```
-With `--s3-only`, PDFs are not written to local disk.
-
-**5. Resume and logging**
-
-`run_fetch_papers.py` writes per-run logs tracking which drugs have been processed, so interrupted runs can be resumed without re-downloading.
+`--s3-only` skips local writes. Per-run logs let `run_fetch_papers.py` resume interrupted runs without re-downloading.
 
 ---
 
 ### Phase 3 — Ingestion
 
-**Entry point:** `run_ingestion.py`  
-**Core logic:** `app/ingestion.py`
+**Entry point:** `run_ingestion.py` → `app/ingestion.py`. Reads PDFs from `data/docs/` (or S3), extracts text, chunks it, embeds each chunk with Gemini, and upserts into ChromaDB.
 
-Reads every PDF from `data/docs/` (or S3), extracts text, splits into overlapping chunks, embeds each chunk with Gemini, and upserts into ChromaDB.
+#### Filename parsing (`utils.parse_filename`)
 
-#### Step 1 — Filename parsing (`app/utils.py:parse_filename`)
-
-Before any content is processed, the filename is parsed to extract identifiers:
-
-```
-aspirin_repurposing_PMC11242460.pdf
-     │                   │
-  drug_id             doc_id
- "aspirin"          "PMC11242460"
-```
-
-The filename format is `{drug_id}_repurposing_{source_id}.pdf`. The parser splits on `_repurposing_` and normalises `drug_id` to lower-case with underscores. This produces a `DocumentInfo` namedtuple:
+Filenames follow `{drug_id}_repurposing_{source_id}.pdf`. The parser splits on `_repurposing_`, lowercases `drug_id`, and produces:
 
 ```python
 DocumentInfo(
@@ -185,42 +190,27 @@ DocumentInfo(
 )
 ```
 
-#### Step 2 — Text extraction (`app/utils.py:extract_text_from_pdf`)
+#### Text extraction (`utils.extract_text_from_pdf`)
 
-Uses **PyPDF2** (`PdfReader`, `strict=False`) to iterate over every page and concatenate `page.extract_text()` output. Encrypted PDFs are decrypted with an empty password. PyPDF2 warnings are suppressed at the logger level and only printed if they occur during extraction. The result is a single string of all page text, stripped of leading/trailing whitespace.
+PyPDF2 (`strict=False`) concatenates `page.extract_text()` across all pages; encrypted PDFs are decrypted with an empty password. `extract_text_from_pdf_bytes` does the same from a `BytesIO` buffer for S3 ingestion (no disk write).
 
-For S3 ingestion, `extract_text_from_pdf_bytes` does the same from an in-memory `BytesIO` buffer, avoiding any disk write.
+#### Chunking (`utils.chunk_text`)
 
-#### Step 3 — Chunking (`app/utils.py:chunk_text`)
+`chunk_size=1000` chars, `overlap=200`. The sliding window snaps to the next sentence boundary (`.`) within 100 chars past the target end, falling back to the nearest space within ±50 chars. Empty chunks are discarded. Typical output: 800–1100 chars per chunk.
 
-Default parameters: `chunk_size=1000` characters, `overlap=200` characters.
-
-The chunker slides a window across the text. At each step:
-1. Tries to extend to the next sentence boundary (`.`) within 100 characters past the target end.
-2. If no sentence boundary is found, falls back to the nearest word boundary (space) within ±50 characters.
-3. Advances the start pointer by `chunk_size - overlap` to create the overlap.
-
-This produces chunks of approximately 800–1100 characters that preserve sentence integrity at boundaries. Empty chunks are discarded.
-
-#### Step 4 — Embedding (`app/ingestion.py:embed_texts`)
-
-Each chunk text is embedded individually via the Gemini API:
+#### Embedding (`ingestion.embed_texts`)
 
 ```python
 genai.embed_content(
-    model  = settings.gemini_embedding_model,   # default: "models/embedding-001"
-    content = chunk_text,
-    task_type = "retrieval_document"             # optimised for storage-side embedding
+    model     = settings.gemini_embedding_model,   # configured via GEMINI_EMBEDDING_MODEL
+    content   = chunk_text,
+    task_type = "retrieval_document"               # asymmetric with retrieval_query
 )
 ```
 
-The result is a 768-dimensional float vector. The `retrieval_document` task type instructs Gemini to optimise the embedding for later retrieval — this must be paired with `retrieval_query` on the query side.
+One Gemini call per chunk — no batching, so this dominates ingestion time for large corpora.
 
-There is no batching: each chunk makes one Gemini API call. For large corpora this is the dominant time cost.
-
-#### Step 5 — Metadata construction and upsert
-
-For each chunk `i` in a document, a metadata record is built:
+#### Metadata and upsert
 
 ```python
 {
@@ -229,22 +219,13 @@ For each chunk `i` in a document, a metadata record is built:
     "doc_title":    "Aspirin Repurposing PMC11242460",
     "chunk_index":  i,
     "total_chunks": N,
-    "file_path":    "/absolute/path/to/aspirin_repurposing_PMC11242460.pdf",
+    "file_path":    "/abs/path/...PMC11242460.pdf",
     "drug_folder":  "aspirin repurposing",
     "source_type":  "pdf"          # or "s3" / "pdf_bytes"
 }
 ```
 
-The chunk's unique ID is:
-```
-aspirin__PMC11242460__chunk_0
-aspirin__PMC11242460__chunk_1
-...
-```
-
-The format is `{drug_id}__{doc_id}__chunk_{i}`. This ID is deterministic: re-ingesting the same document produces the same IDs. ChromaDB's `collection.add` raises on duplicate IDs, so the collection must be cleared before re-ingesting an existing document.
-
-Chunks, metadata, and IDs are passed to `upsert_chunks`, which calls `collection.add`. ChromaDB handles the embedding storage internally alongside the text and metadata.
+Chunk IDs are `{drug_id}__{doc_id}__chunk_{i}` — deterministic, so re-ingesting the same document collides with existing IDs on `collection.add`. Clear the collection before re-ingesting.
 
 #### Ingestion modes
 
@@ -280,17 +261,12 @@ The startup sequence is managed by the `lifespan` async context manager in `app/
 
 ### Drug Cache
 
-The drug list (which drug IDs exist in ChromaDB) is expensive to compute: it requires scanning all chunk metadata. The system uses a two-layer cache to make startup near-instant:
+Enumerating drug IDs requires scanning all chunk metadata, which is too slow to do on every startup. A two-layer cache makes it near-instant:
 
-**Layer 1 — disk cache** (`data/drugs_cache.json`): on startup, `_load_cache_from_disk` reads this JSON file if it exists. The file stores `drug_ids`, `drug_aliases`, a `drugs` list, and the `timestamp` of the last refresh. If the file is present and not expired (TTL controlled by `DRUGS_CACHE_TTL_SECONDS`), the API is immediately ready to serve drug lists and resolve names.
+- **Disk cache** (`data/drugs_cache.json`): `_load_cache_from_disk` reads `drug_ids`, `drug_aliases`, and a refresh `timestamp`. If present and not expired (`DRUGS_CACHE_TTL_SECONDS`), the API is immediately ready.
+- **Background refresh**: a daemon thread runs `_refresh_drugs_cache`, pages through ChromaDB metadata (1000 at a time), rebuilds the alias map, and overwrites the JSON. The main thread is never blocked.
 
-**Layer 2 — background refresh**: after loading from disk, a daemon thread runs `_refresh_drugs_cache` asynchronously. This scans all ChromaDB metadata in pages of 1000, rebuilds the canonical alias map, and overwrites `data/drugs_cache.json`. The main thread is not blocked.
-
-On first run (no cache file), the synchronous refresh runs at startup before any requests are served, then saves to disk. All subsequent startups are fast.
-
-If `MAX_DRUGS_TO_LOAD` is set to a non-zero value, the metadata scan stops early once that many unique drugs have been seen, further reducing startup time for large collections.
-
-Drug IDs and their aliases are stored in two module-level globals: `drug_ids` (a `set`) and `drug_aliases` (a `dict`). These are updated in-place by the background refresh and protected by `_drugs_cache_lock`.
+First run (no cache file) does a synchronous refresh before serving requests. `MAX_DRUGS_TO_LOAD > 0` stops the scan early once that many unique drugs are seen. Globals `drug_ids` (`set`) and `drug_aliases` (`dict`) are updated under `_drugs_cache_lock`.
 
 ### API Routes
 
@@ -319,9 +295,8 @@ Response:
 
 #### `POST /drug_repurposing_chat/chat`
 
-The primary chat endpoint. Accepts a `drug_id` (string or list of strings) directly — the caller is responsible for supplying the canonical ID.
+Primary chat endpoint — the caller supplies a canonical `drug_id` (string or list for multi-alias queries). `doc_id` optionally restricts retrieval to one paper; `conversation_history` enables multi-turn.
 
-Request body (`ChatRequest`):
 ```json
 {
   "session_id": "session_abc123",
@@ -335,15 +310,12 @@ Request body (`ChatRequest`):
 }
 ```
 
-`drug_id` can be a list (e.g. `["aspirin", "aspirin_repurposing"]`) to query across multiple alias IDs simultaneously. `doc_id` optionally restricts retrieval to a single paper. `conversation_history` is passed into the RAG prompt to support multi-turn conversations.
-
 ---
 
 #### `POST /drug_repurposing_chat/chat-by-drug-name`
 
-The Novyra-facing endpoint. Accepts a human-readable `drug_name` and performs resolution internally before calling the RAG pipeline. This is the endpoint Novyra should call.
+**The Novyra-facing endpoint.** Same as `/chat` but accepts a human-readable `drug_name` and resolves it server-side: `resolve_drug_id` → on miss, force a cache refresh and retry once → on second miss, return HTTP 404 `Unknown drug name`.
 
-Request body (`ChatByDrugNameRequest`):
 ```json
 {
   "session_id": "session_abc123",
@@ -353,11 +325,6 @@ Request body (`ChatByDrugNameRequest`):
   "conversation_history": []
 }
 ```
-
-Resolution flow:
-1. `resolve_drug_id("Aspirin", drug_ids, drug_aliases)` → `"aspirin"`
-2. If not found, forces a cache refresh and retries resolution once.
-3. If still not found, returns HTTP 404 with `"Unknown drug name"`.
 
 ---
 
@@ -389,46 +356,62 @@ Triggers a full batch ingestion of all PDFs under `DOCS_DIR`. Equivalent to runn
 
 `app/rag.py:chat_with_documents` is the single entry point called by both `/chat` and `/chat-by-drug-name`. It executes five steps in sequence.
 
+```mermaid
+flowchart TB
+    classDef input  fill:#F3E5F5,stroke:#6A1B9A,stroke-width:2px,color:#4A148C
+    classDef step   fill:#E3F2FD,stroke:#1565C0,stroke-width:2px,color:#0D47A1
+    classDef store  fill:#FFF3E0,stroke:#E65100,stroke-width:2px,color:#BF360C
+    classDef llm    fill:#FFEBEE,stroke:#C62828,stroke-width:2px,color:#B71C1C
+    classDef output fill:#E8F5E9,stroke:#2E7D32,stroke-width:2px,color:#1B5E20
+
+    Q([User message<br/>+ drug_id<br/>+ conversation_history]):::input
+
+    E1[build_enhanced_query<br/>fold in last 6 turns]:::step
+    E2[embed_query<br/>Gemini retrieval_query<br/>768-dim vector]:::step
+
+    Q --> E1 --> E2
+
+    E2 --> R1["collection.query<br/>where: drug_id<br/>n_results: top_k × 2"]:::step
+    R1 --> DB[(ChromaDB<br/>cosine ANN)]:::store
+    DB --> R2{diversity capping<br/>≤5 chunks per doc}:::step
+    R2 -- top-k = 20 chunks --> P1[build_rag_prompt<br/>system • history • contexts • question]:::step
+
+    P1 --> G[Gemini GenerativeModel<br/>temp = 0.1 • max_tokens = 2000]:::llm
+    G --> S1[strip_context_labels]:::step
+    S1 --> S2[extract_sources_from_results]:::step
+    S2 --> S3[append_inline_references<br/>dedup PMC links]:::step
+
+    S3 --> Out([ChatResponse<br/>answer + sources + session_id]):::output
+```
+
 ### Query Embedding
 
 ```python
 genai.embed_content(
-    model     = settings.gemini_embedding_model,   # "models/embedding-001"
+    model     = settings.gemini_embedding_model,   # configured via GEMINI_EMBEDDING_MODEL
     content   = user_message,
-    task_type = "retrieval_query"                  # query-side task type
+    task_type = "retrieval_query"
 )
 ```
 
-The embedding is 768-dimensional. The `retrieval_query` task type produces a query-optimised vector that is asymmetrically paired with the `retrieval_document` vectors stored during ingestion. This asymmetric embedding is a feature of the Gemini embedding model and improves retrieval accuracy compared to embedding both sides identically.
-
-The returned vector is validated against `GEMINI_EMBEDDING_DIMENSION` and raises a `ValueError` on mismatch.
+`retrieval_query` is asymmetric with the `retrieval_document` task used at ingest — pairing them improves retrieval accuracy. The returned vector is validated against `GEMINI_EMBEDDING_DIMENSION`.
 
 ### Chunk Retrieval and Diversity
-
-ChromaDB is queried with:
 
 ```python
 collection.query(
     query_embeddings = [query_vector],
-    where            = {"drug_id": drug_id},        # metadata filter
-    n_results        = top_k * 2,                   # fetch 2× for diversity capping
+    where            = {"drug_id": drug_id},   # or {"$in": [...]} for lists
+    n_results        = top_k * 2,              # fetch 2× for diversity capping
     include          = ["documents", "metadatas", "distances"]
 )
 ```
 
-The default `top_k` is 20, so 40 candidates are fetched. Distances are cosine distances (lower = more similar, since the collection uses `hnsw:space=cosine`).
-
-When `drug_id` is a list, the filter becomes `{"drug_id": {"$in": drug_id}}`, querying across all named aliases simultaneously.
-
-**Diversity capping**: a per-document counter limits how many chunks from the same paper can be selected. The cap is 5 chunks per `doc_id`. This prevents a single long paper from dominating the context window when multiple papers exist for a drug. After diversity filtering, `top_k` (20) chunks are passed to the LLM.
-
-The effect is that answers synthesize evidence across multiple papers rather than paraphrasing one paper repeatedly.
+Default `top_k = 20` (so 40 candidates fetched). Distances are cosine (lower = more similar). A per-document counter then caps selection at **5 chunks per `doc_id`** before passing 20 final chunks to the LLM, so a single long paper cannot dominate the context window and answers synthesize across multiple papers.
 
 ### Prompt Construction
 
-`build_enhanced_query` prepends the last 6 conversation turns to the current message to form a context-aware query string. This enriched string is used only for retrieval — not verbatim in the final prompt.
-
-`build_rag_prompt` assembles the LLM prompt:
+`build_enhanced_query` prepends the last 6 conversation turns to the current message — used only for retrieval, not in the final prompt. `build_rag_prompt` then assembles:
 
 ```
 You are a helpful assistant specializing in drug repurposing research.
@@ -450,31 +433,24 @@ Question: {user_message}
 Provide a detailed and comprehensive answer based on the available scientific context:
 ```
 
-Key instructions embedded in the prompt:
-- Synthesize across **all** provided contexts, not just the most relevant one.
-- Do not label answers with "Context N" references (these are stripped post-generation by `strip_context_labels`).
-- For follow-up questions, build on previous discussion while adding new detail.
+Embedded instructions: synthesize across **all** contexts (not just the top one); do not output `(Context N)` labels — `strip_context_labels` removes any that slip through; for follow-ups, build on previous discussion.
 
 ### Answer Generation
 
 ```python
-model = genai.GenerativeModel(settings.gemini_chat_model)   # "models/gemini-2.0-flash-exp"
+model = genai.GenerativeModel(settings.gemini_chat_model)   # configured via GEMINI_CHAT_MODEL
 response = model.generate_content(
     prompt,
     generation_config=genai.types.GenerationConfig(
-        temperature       = 0.1,    # near-deterministic for factual accuracy
+        temperature       = 0.1,    # near-deterministic, grounded in retrieved context
         max_output_tokens = 2000,
     )
 )
 ```
 
-Temperature 0.1 keeps responses grounded in the retrieved context rather than generating plausible-sounding but unsupported claims.
-
-After generation, `strip_context_labels` removes any parenthetical `(Context N, M)` strings the model may have produced despite the instruction.
-
 ### Citations
 
-`append_inline_references` appends a deduplicated list of PMC citation links at the end of the answer:
+`append_inline_references` collects `doc_id`s from retrieved chunks in order, deduplicates them, and appends:
 
 ```
 This response was generated from looking at the following papers:
@@ -482,9 +458,7 @@ This response was generated from looking at the following papers:
 [PMC5995787](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5995787/).
 ```
 
-`doc_id` values from all retrieved chunks are collected in retrieval order, deduplicated while preserving order, and formatted as markdown links. Each `doc_id` is the PMC accession number extracted from the original filename during ingestion.
-
-The `sources` field in the API response contains the full `Source` list with `doc_id`, `doc_title`, `chunk_id`, cosine `distance`, a 200-character `text_preview`, and the original `file_path`.
+Each `doc_id` is the PMC accession extracted at ingest. The API response's `sources` field additionally exposes the full chunk-level citation objects (title, distance, preview, file path) — see §8.
 
 ---
 
@@ -496,7 +470,7 @@ The `sources` field in the API response contains the full `Source` list with `do
 
 **Similarity metric:** cosine (`hnsw:space=cosine`).
 
-**Embedding dimension:** 768 (Gemini `models/embedding-001`). This is fixed for the lifetime of the collection and must match `GEMINI_EMBEDDING_DIMENSION`.
+**Embedding dimension:** set via `GEMINI_EMBEDDING_DIMENSION` and determined by the configured Gemini embedding model. This is fixed for the lifetime of the collection — switching to a model with a different output dimension requires re-ingesting into a new collection.
 
 **Per-chunk record:**
 
@@ -604,9 +578,9 @@ All values are loaded from `.env` by `app/config.py` using `pydantic-settings`. 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `GEMINI_API_KEY` | — (required) | Google Gemini API key |
-| `GEMINI_EMBEDDING_MODEL` | `models/embedding-001` | Gemini embedding model used for both ingestion and query |
-| `GEMINI_EMBEDDING_DIMENSION` | `768` | Expected vector dimension; must match the model above |
-| `GEMINI_CHAT_MODEL` | `models/gemini-2.0-flash-exp` | Gemini generative model used to produce answers |
+| `GEMINI_EMBEDDING_MODEL` | — (required) | Gemini embedding model used for both ingestion and query |
+| `GEMINI_EMBEDDING_DIMENSION` | — (required) | Expected vector dimension; must match the embedding model above |
+| `GEMINI_CHAT_MODEL` | — (required) | Gemini generative model used to produce answers |
 | `CHROMA_DB_DIR` | `./data/chroma` | Directory where ChromaDB persists its index |
 | `CHROMA_COLLECTION_NAME` | `drug_docs` | ChromaDB collection name |
 | `DOCS_DIR` | `./data/docs` | Root directory of per-drug PDF subfolders |
@@ -616,7 +590,7 @@ All values are loaded from `.env` by `app/config.py` using `pydantic-settings`. 
 | `S3_PREFIX` | `""` | Key prefix inside the S3 bucket |
 | `S3_REGION` | unset | AWS region for the S3 bucket |
 
-Changing `GEMINI_EMBEDDING_MODEL` or `GEMINI_EMBEDDING_DIMENSION` after a collection has been built will cause dimension mismatch errors. The collection must be deleted and rebuilt from scratch if the embedding model is changed.
+Changing the embedding model (or its dimension) after the collection is built causes dimension-mismatch errors at query time — the collection must be deleted and rebuilt.
 
 ---
 

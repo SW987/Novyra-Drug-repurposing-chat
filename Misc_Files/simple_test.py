@@ -56,7 +56,7 @@ def test_gemini_integration():
         # Test embedding
         test_text = "Aspirin is commonly used for pain relief and has shown promise in cancer prevention."
         result = genai.embed_content(
-            model="models/embedding-001",
+            model=settings.gemini_embedding_model,
             content=test_text,
             task_type="retrieval_document"
         )
@@ -64,7 +64,7 @@ def test_gemini_integration():
         print(f"✅ Generated embedding with {len(embedding)} dimensions")
 
         # Test chat completion
-        model = genai.GenerativeModel('models/gemini-2.0-flash-exp')
+        model = genai.GenerativeModel(settings.gemini_chat_model)
         response = model.generate_content(
             "What are the potential benefits of aspirin for cancer prevention?"
         )

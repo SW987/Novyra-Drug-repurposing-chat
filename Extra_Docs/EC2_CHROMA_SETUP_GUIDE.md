@@ -48,9 +48,9 @@ Create `.env` in the repo root:
 ```bash
 cat > .env << 'EOF'
 GEMINI_API_KEY=your_actual_api_key_here
-GEMINI_EMBEDDING_MODEL=models/embedding-001
-GEMINI_EMBEDDING_DIMENSION=768
-GEMINI_CHAT_MODEL=models/gemini-2.0-flash-exp
+GEMINI_EMBEDDING_MODEL=<your Gemini embedding model>
+GEMINI_EMBEDDING_DIMENSION=<vector dim of embedding model>
+GEMINI_CHAT_MODEL=<your Gemini chat model>
 CHROMA_DB_DIR=./data/chroma
 CHROMA_COLLECTION_NAME=drug_docs
 DOCS_DIR=./data/docs
@@ -64,8 +64,8 @@ Notes:
 - `CHROMA_DB_DIR` is the persistent store on disk.
 - `DOCS_DIR` is used for local PDFs (if you keep them).
 - `S3_*` enable S3 mirroring and S3 ingestion.
-- If you switch to `models/gemini-embedding-001`, set `GEMINI_EMBEDDING_DIMENSION=3072`
-  and rebuild Chroma.
+- If you switch to a Gemini embedding model with a different output dimension,
+  update `GEMINI_EMBEDDING_DIMENSION` to match and rebuild Chroma.
 
 ## 7) Create local data folders (if needed)
 

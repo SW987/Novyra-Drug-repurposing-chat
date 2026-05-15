@@ -27,8 +27,9 @@ All configuration is read from environment variables. Copy `.env.example` at the
 
 ```
 GEMINI_API_KEY=<your key>          # Required
-GEMINI_EMBEDDING_MODEL=...         # Default: models/embedding-001
-GEMINI_CHAT_MODEL=...              # Default: models/gemini-2.0-flash-exp
+GEMINI_EMBEDDING_MODEL=<your Gemini embedding model>   # Required
+GEMINI_EMBEDDING_DIMENSION=<vector dim of embedding model>  # Required, must match the model above
+GEMINI_CHAT_MODEL=<your Gemini chat model>             # Required
 CHROMA_DB_DIR=./data/chroma        # Where ChromaDB persists its index
 DOCS_DIR=./data/docs               # Root folder for per-drug PDF subfolders
 ```

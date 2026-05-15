@@ -36,9 +36,9 @@ class Settings(BaseSettings):
     """
 
     gemini_api_key: str
-    gemini_embedding_model: str = "models/embedding-001"
-    gemini_embedding_dimension: int = 768
-    gemini_chat_model: str = "models/gemini-2.0-flash-exp"
+    gemini_embedding_model: str
+    gemini_embedding_dimension: int
+    gemini_chat_model: str
     chroma_db_dir: str = "./data/chroma"
     chroma_collection_name: str = "drug_docs"
     docs_dir: str = "./data/docs"
