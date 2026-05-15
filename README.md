@@ -33,36 +33,33 @@ An API service that answers natural-language questions about drug repurposing by
 
 The system runs in two distinct phases: an **offline corpus build** (PubMed Central → PDFs → chunks → Gemini embeddings → ChromaDB) and a **FastAPI runtime** (drug-name resolution → query embedding → ChromaDB retrieval → Gemini answer with PMC citations). The corpus is immutable at query time.
 
-```mermaid
-flowchart LR
-    classDef build   fill:#E8F5E9,stroke:#2E7D32,stroke-width:2px,color:#1B5E20
-    classDef runtime fill:#E3F2FD,stroke:#1565C0,stroke-width:2px,color:#0D47A1
-    classDef store   fill:#FFF3E0,stroke:#E65100,stroke-width:2px,color:#BF360C
-    classDef api     fill:#F3E5F5,stroke:#6A1B9A,stroke-width:2px,color:#4A148C
-
-    subgraph CB["🛠️&nbsp; Corpus Build &nbsp;(offline, one time)"]
-        direction TB
-        P1[PubMed Central<br/>eSearch + OA API]:::build
-        P2[paper_fetcher.py<br/>download • validate]:::build
-        P3[(data/docs/<br/>PDF corpus)]:::store
-        P4[ingestion.py<br/>extract • chunk • embed]:::build
-        P5[(data/chroma/<br/>vector store)]:::store
-        P1 --> P2 --> P3 --> P4 --> P5
-    end
-
-    subgraph RT["⚡&nbsp; Runtime &nbsp;(FastAPI endpoint)"]
-        direction TB
-        R1([Novyra client]):::api
-        R2["POST /chat-by-drug-name"]:::api
-        R3[drug_resolver.py<br/>name → canonical drug_id]:::runtime
-        R4[rag.py<br/>embed query • cosine search]:::runtime
-        R5[(ChromaDB<br/>diversity-capped top-k)]:::store
-        R6[Gemini GenerativeModel<br/>synthesize answer]:::runtime
-        R7([ChatResponse<br/>+ PMC citations]):::api
-        R1 --> R2 --> R3 --> R4 --> R5 --> R6 --> R7
-    end
-
-    P5 -. persistent disk .-> R5
+```
+   CORPUS BUILD  (offline, one time)            RUNTIME  (FastAPI endpoint)
+   ────────────────────────────────             ────────────────────────────
+   PubMed Central                               Novyra client
+   eSearch + OA API                                   │
+        │                                             ▼
+        ▼                                      POST /chat-by-drug-name
+   paper_fetcher.py                                   │
+   download • validate                                ▼
+        │                                      drug_resolver.py
+        ▼                                      name → canonical drug_id
+   [ data/docs/         ]                             │
+   [   PDF corpus       ]                             ▼
+        │                                      rag.py
+        ▼                                      embed query • cosine search
+   ingestion.py                                       │
+   extract • chunk • embed                            ▼
+        │                                      [ ChromaDB             ]
+        ▼                                      [ diversity-capped top-k]
+   [ data/chroma/       ] ─── persistent ───►         │
+   [   vector store     ]      disk                   ▼
+                                               Gemini GenerativeModel
+                                               synthesize answer
+                                                      │
+                                                      ▼
+                                               ChatResponse
+                                               + PMC citations
 ```
 
 ---
@@ -111,43 +108,42 @@ flowchart LR
 
 The corpus must be built before the API can answer any questions. It is a two-phase offline process.
 
-```mermaid
-flowchart TB
-    classDef step  fill:#E8F5E9,stroke:#2E7D32,stroke-width:2px,color:#1B5E20
-    classDef io    fill:#FFF3E0,stroke:#E65100,stroke-width:2px,color:#BF360C
-    classDef gate  fill:#FFFDE7,stroke:#F9A825,stroke-width:2px,color:#F57F17
-    classDef edge  fill:#F3E5F5,stroke:#6A1B9A,stroke-width:2px,color:#4A148C
-
-    Start([CSV of drug names]):::edge
-
-    subgraph PH2["📥&nbsp; Phase 2 — Paper Fetching"]
-        direction TB
-        F1["PMC eSearch<br/>'{drug} repurposing'"]:::step
-        F2[OA API<br/>resolve PDF / TAR URL]:::step
-        F3[Download with retry<br/>3 attempts • expo backoff]:::step
-        F4{is_valid_pdf?<br/>>5KB • %PDF- • %%EOF}:::gate
-        F5[(data/docs/<br/>{drug} repurposing/)]:::io
-        F6[(Optional<br/>S3 mirror)]:::io
-        F1 --> F2 --> F3 --> F4
-        F4 -- valid --> F5
-        F4 -- invalid --> Drop([discard]):::edge
-        F5 -. if S3_BUCKET set .-> F6
-    end
-
-    subgraph PH3["🧬&nbsp; Phase 3 — Ingestion"]
-        direction TB
-        I1[parse_filename<br/>drug_id • doc_id • title]:::step
-        I2[extract_text_from_pdf<br/>PyPDF2]:::step
-        I3[chunk_text<br/>~1000 chars • 200 overlap]:::step
-        I4[Gemini embed each chunk<br/>retrieval_document]:::step
-        I5[upsert_chunks<br/>id • text • vector • metadata]:::step
-        I6[(ChromaDB<br/>drug_docs collection)]:::io
-        I1 --> I2 --> I3 --> I4 --> I5 --> I6
-    end
-
-    Start --> F1
-    F5 --> I1
-    F6 -.-> I1
+```
+   CSV of drug names
+         │
+         ▼
+   ┌─────────────────────────── Phase 2 — Paper Fetching ────────────────────────────┐
+   │                                                                                 │
+   │   PMC eSearch  ──►  OA API  ──►  download (3 retries)  ──►  is_valid_pdf?       │
+   │   '{drug}                        + exponential backoff       >5KB, %PDF-, %%EOF │
+   │    repurposing'                                                  │              │
+   │                                                                  │ valid        │
+   │                                       invalid ◄──────────────────┤              │
+   │                                          │                       ▼              │
+   │                                          ▼              [ data/docs/            │
+   │                                       discard            {drug} repurposing/ ]  │
+   │                                                                  │              │
+   │                              if S3_BUCKET set ──► [ Optional S3 mirror ]        │
+   └─────────────────────────────────────────────────────────────────────────────────┘
+         │
+         ▼
+   ┌─────────────────────────────── Phase 3 — Ingestion ────────────────────────────┐
+   │                                                                                │
+   │   parse_filename  ──►  extract_text_from_pdf  ──►  chunk_text                  │
+   │   drug_id, doc_id      PyPDF2                      1000 chars, 200 overlap     │
+   │   doc_title                                              │                     │
+   │                                                          ▼                     │
+   │                                                  Gemini embed each chunk       │
+   │                                                  (retrieval_document)          │
+   │                                                          │                     │
+   │                                                          ▼                     │
+   │                                                  upsert_chunks                 │
+   │                                                  id, text, vector, metadata    │
+   │                                                          │                     │
+   │                                                          ▼                     │
+   │                                                  [ ChromaDB                    │
+   │                                                    drug_docs collection ]      │
+   └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### Phase 2 — Paper Fetching
@@ -356,32 +352,41 @@ Triggers a full batch ingestion of all PDFs under `DOCS_DIR`. Equivalent to runn
 
 `app/rag.py:chat_with_documents` is the single entry point called by both `/chat` and `/chat-by-drug-name`. It executes five steps in sequence.
 
-```mermaid
-flowchart TB
-    classDef input  fill:#F3E5F5,stroke:#6A1B9A,stroke-width:2px,color:#4A148C
-    classDef step   fill:#E3F2FD,stroke:#1565C0,stroke-width:2px,color:#0D47A1
-    classDef store  fill:#FFF3E0,stroke:#E65100,stroke-width:2px,color:#BF360C
-    classDef llm    fill:#FFEBEE,stroke:#C62828,stroke-width:2px,color:#B71C1C
-    classDef output fill:#E8F5E9,stroke:#2E7D32,stroke-width:2px,color:#1B5E20
-
-    Q([User message<br/>+ drug_id<br/>+ conversation_history]):::input
-
-    E1[build_enhanced_query<br/>fold in last 6 turns]:::step
-    E2[embed_query<br/>Gemini retrieval_query<br/>768-dim vector]:::step
-
-    Q --> E1 --> E2
-
-    E2 --> R1["collection.query<br/>where: drug_id<br/>n_results: top_k × 2"]:::step
-    R1 --> DB[(ChromaDB<br/>cosine ANN)]:::store
-    DB --> R2{diversity capping<br/>≤5 chunks per doc}:::step
-    R2 -- top-k = 20 chunks --> P1[build_rag_prompt<br/>system • history • contexts • question]:::step
-
-    P1 --> G[Gemini GenerativeModel<br/>temp = 0.1 • max_tokens = 2000]:::llm
-    G --> S1[strip_context_labels]:::step
-    S1 --> S2[extract_sources_from_results]:::step
-    S2 --> S3[append_inline_references<br/>dedup PMC links]:::step
-
-    S3 --> Out([ChatResponse<br/>answer + sources + session_id]):::output
+```
+   User message + drug_id + conversation_history
+         │
+         ▼
+   build_enhanced_query                 (fold in last 6 turns)
+         │
+         ▼
+   embed_query                          (Gemini retrieval_query, 768-dim)
+         │
+         ▼
+   collection.query                     (where: drug_id, n_results: top_k * 2)
+         │
+         ▼
+   [ ChromaDB cosine ANN ]
+         │
+         ▼
+   diversity capping                    (max 5 chunks per doc)
+         │  top-k = 20 chunks
+         ▼
+   build_rag_prompt                     (system + history + contexts + question)
+         │
+         ▼
+   Gemini GenerativeModel               (temp=0.1, max_tokens=2000)
+         │
+         ▼
+   strip_context_labels
+         │
+         ▼
+   extract_sources_from_results
+         │
+         ▼
+   append_inline_references             (dedup PMC links)
+         │
+         ▼
+   ChatResponse                         (answer + sources + session_id)
 ```
 
 ### Query Embedding
