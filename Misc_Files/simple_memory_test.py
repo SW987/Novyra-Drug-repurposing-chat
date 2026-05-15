@@ -9,14 +9,15 @@ from app.config import get_settings # Import get_settings
 from pathlib import Path
 import json
 
+# Default docs root: ``<project>/data/docs`` (matches the project's DOCS_DIR).
+DOCS_DIR = Path(__file__).resolve().parents[1] / "data" / "docs"
+
 # Configure Gemini (only needed if running this script standalone for direct API calls)
 # For testing the FastAPI server, this script should not configure genai directly.
 
 def load_pdf_content(drug_name):
     """Load PDF content for a drug."""
-    base_path = Path(r"C:\Users\saadw\Downloads\repurposing research papers for 3 drugs")
-
-    drug_dir = base_path / f"{drug_name} repurposing"
+    drug_dir = DOCS_DIR / f"{drug_name} repurposing"
     if not drug_dir.exists():
         return []
 

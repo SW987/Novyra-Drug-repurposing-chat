@@ -4,12 +4,17 @@ Self-Contained Streamlit Demo for Drug Repurposing Chat System
 Combines frontend and backend in one deployable application
 """
 
+import sys
+from pathlib import Path
+
+# Anchor to project root so imports work regardless of launch directory
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import streamlit as st
 import time
 import os
 import re
-from typing import List, Dict, Any, Optional, Union
-from pathlib import Path
+from typing import List, Dict, Any, Union
 import requests
 
 API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
@@ -35,8 +40,9 @@ AVAILABLE_DRUGS = {
 }
 
 def _get_docs_dir(settings: Settings) -> Path:
+    _root = Path(__file__).resolve().parent.parent
     default_dir = Path(settings.docs_dir)
-    testdata_dir = Path("data") / "testdata"
+    testdata_dir = _root / "data" / "testdata"
     if testdata_dir.exists():
         return testdata_dir
     return default_dir

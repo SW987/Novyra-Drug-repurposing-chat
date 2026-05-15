@@ -8,6 +8,9 @@ import os
 import google.generativeai as genai
 from pathlib import Path
 
+# Default docs root: ``<project>/data/docs`` (matches the project's DOCS_DIR).
+DOCS_DIR = Path(__file__).resolve().parents[1] / "data" / "docs"
+
 # Your existing validation function
 def is_valid_pdf(file_path):
     """Return True if file exists, has PDF header, and size > 5KB."""
@@ -56,9 +59,9 @@ def demonstrate_integration():
 
     # Your existing PDF directories
     pdf_directories = {
-        "aspirin": r"C:\Users\saadw\Downloads\repurposing research papers for 3 drugs\aspirin repurposing",
-        "apomorphine": r"C:\Users\saadw\Downloads\repurposing research papers for 3 drugs\apomorphine repurposing",
-        "insulin": r"C:\Users\saadw\Downloads\repurposing research papers for 3 drugs\insulin repurposing"
+        "aspirin": str(DOCS_DIR / "aspirin repurposing"),
+        "apomorphine": str(DOCS_DIR / "apomorphine repurposing"),
+        "insulin": str(DOCS_DIR / "insulin repurposing"),
     }
 
     total_pdfs = 0

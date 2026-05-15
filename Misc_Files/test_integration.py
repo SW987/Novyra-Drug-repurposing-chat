@@ -8,6 +8,7 @@ Test the integrated system to ensure:
 
 import os
 import sys
+from pathlib import Path
 
 # Import your integrated system
 sys.path.append('.')
@@ -18,16 +19,18 @@ from your_integrated_download_system import (
     download_and_process_drug_papers
 )
 
+# Default docs root: ``<project>/data/docs`` (matches the project's DOCS_DIR).
+DOCS_DIR = Path(__file__).resolve().parents[1] / "data" / "docs"
+
 
 def test_pdf_validation_unchanged():
     """Test that your existing PDF validation works exactly as before"""
     print("🔍 Testing PDF validation (existing functionality)...")
 
-    # Test with your actual PDF files
     test_pdfs = [
-        r"C:\Users\saadw\Downloads\repurposing research papers for 3 drugs\aspirin repurposing\aspirin_repurposing_PMC11242460.pdf",
-        r"C:\Users\saadw\Downloads\repurposing research papers for 3 drugs\apomorphine repurposing\apomorphine_repurposing_PMC5995787.pdf",
-        r"C:\Users\saadw\Downloads\repurposing research papers for 3 drugs\insulin repurposing\insulin_repurposing_PMC11919260.pdf"
+        str(DOCS_DIR / "aspirin repurposing" / "aspirin_repurposing_PMC11242460.pdf"),
+        str(DOCS_DIR / "apomorphine repurposing" / "apomorphine_repurposing_PMC5995787.pdf"),
+        str(DOCS_DIR / "insulin repurposing" / "insulin_repurposing_PMC11919260.pdf"),
     ]
 
     valid_count = 0
@@ -56,8 +59,7 @@ def test_rag_integration():
         print("⚠️  RAG system not available (expected in test environment)")
         return True  # This is OK for testing
 
-    # Test with a real PDF
-    test_pdf = r"C:\Users\saadw\Downloads\repurposing research papers for 3 drugs\aspirin repurposing\aspirin_repurposing_PMC11242460.pdf"
+    test_pdf = str(DOCS_DIR / "aspirin repurposing" / "aspirin_repurposing_PMC11242460.pdf")
 
     if os.path.exists(test_pdf):
         result = process_downloaded_pdf_with_rag(test_pdf, "aspirin", rag_pipeline)

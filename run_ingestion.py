@@ -1,3 +1,32 @@
+"""
+PDF ingestion runner — Phase 3 of the corpus build pipeline.
+
+Walks the drug folder layout produced by ``run_fetch_papers.py`` (or an S3
+prefix) and drives ``app.ingestion_pipeline.PDFIngestionPipeline`` to:
+
+1. Chunk each PDF with overlap.
+2. Embed every chunk using the configured Gemini embedding model.
+3. Upsert the chunks + metadata into the ChromaDB collection that the chat
+   reads from at runtime.
+
+Operational features:
+
+- ``--storage-path`` accepts one or more local roots; pass ``--s3-bucket``
+  to ingest directly from S3 via ``app.ingestion.ingest_pdfs_from_s3``.
+- ``--max-workers`` runs multiple storage paths concurrently (process pool);
+  ``--drug-workers`` parallelises drugs within a single storage path
+  (thread pool).
+- Resume/restart is driven by ``ingestion_log.csv`` written next to the
+  PDFs. ``--resume-mode`` overrides the interactive prompt.
+- ``--watch`` keeps polling for new drug folders (useful when phase 2 is
+  running in parallel on another machine).
+- ``--delete-on-success`` removes local PDFs (and empty folders) after a
+  successful ingestion to conserve disk on EC2 boxes.
+
+Output of this script populates the vector store consumed by the Streamlit
+chat (``streamlit_demo.py``) and the FastAPI endpoints in ``app/main.py``.
+"""
+
 import argparse
 import csv
 import sys
@@ -40,6 +69,7 @@ def _render_progress(current: int, total: int, width: int = 30) -> str:
 
 
 def _dir_size_bytes(path: Path) -> int:
+    """Recursively sum file sizes under ``path`` (for ChromaDB growth logs)."""
     total = 0
     if not path.exists():
         return 0
@@ -63,6 +93,7 @@ def _format_bytes(size: int) -> str:
 
 
 def _parse_storage_paths(raw_paths: List[str]) -> List[str]:
+    """Flatten ``--storage-path`` values (repeatable and/or comma-separated)."""
     storage_paths: List[str] = []
     for entry in raw_paths:
         if not entry:
@@ -75,6 +106,7 @@ def _parse_storage_paths(raw_paths: List[str]) -> List[str]:
 
 
 def _append_ingestion_log(csv_path: Path, row: Dict[str, str]) -> None:
+    """Append a per-drug result row to ``ingestion_log.csv`` (powers resume)."""
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     file_exists = csv_path.exists()
     with csv_path.open("a", newline="", encoding="utf-8") as handle:
@@ -93,6 +125,7 @@ def _append_ingestion_log(csv_path: Path, row: Dict[str, str]) -> None:
 
 
 def _load_processed_drugs(csv_path: Path) -> set[str]:
+    """Replay the ingestion log to find which drugs were already ingested."""
     if not csv_path.exists():
         return set()
     with csv_path.open("r", newline="", encoding="utf-8") as handle:
@@ -106,6 +139,7 @@ def _load_processed_drugs(csv_path: Path) -> set[str]:
 
 
 def _prompt_resume_choice() -> str:
+    """Interactive resume/restart prompt when an existing log is detected."""
     prompt = (
         "Ingestion log found. Choose an option:\n"
         "  1) Resume (skip already processed drugs)\n"
@@ -120,6 +154,7 @@ def _prompt_resume_choice() -> str:
 
 
 def _collect_drug_dirs(docs_dir: Path) -> Dict[str, str]:
+    """Return ``{drug_folder_name: absolute_path}`` for each subdir of ``docs_dir``."""
     drug_dirs: Dict[str, str] = {}
     if docs_dir.exists():
         for subdir in docs_dir.iterdir():
@@ -137,6 +172,14 @@ def _run_ingestion_batch(
     drug_workers: int = 1,
     delete_on_success: bool = False,
 ) -> Dict[str, Any]:
+    """Ingest every drug folder in ``drug_dirs`` and roll the per-drug results up.
+
+    Runs sequentially when ``drug_workers`` is 1 or there is a single drug;
+    otherwise uses a ``ThreadPoolExecutor`` and falls back to sequential
+    processing if a worker raises (to avoid losing progress on a flaky
+    drug). After each drug completes, the result is appended to
+    ``log_path`` (if provided) so subsequent runs can resume.
+    """
     overall_results: Dict[str, Any] = {
         "timestamp": time.time(),
         "drugs_processed": [],
@@ -288,6 +331,11 @@ def _run_ingestion_job(
     drug_workers: int = 1,
     delete_on_success: bool = False,
 ) -> Dict[str, Any]:
+    """Ingest every drug folder under one local ``storage_path``.
+
+    Loads settings, applies resume/restart logic against the path's
+    ``ingestion_log.csv``, then delegates to ``_run_ingestion_batch``.
+    """
     job_label = Path(storage_path).name or storage_path
     _log(f"Starting ingestion job for {storage_path}", job_label)
     load_dotenv()
@@ -354,6 +402,7 @@ def _run_ingestion_job(
 
 
 def _run_s3_ingestion_job(bucket: str, prefix: str, region: Optional[str]) -> Dict[str, Any]:
+    """Stream PDFs straight from S3 into ChromaDB (no local copy)."""
     job_label = f"s3://{bucket}/{prefix}".rstrip("/")
     _log(f"Starting S3 ingestion job for {job_label}", job_label)
     load_dotenv()
@@ -374,6 +423,7 @@ def _run_s3_ingestion_job(bucket: str, prefix: str, region: Optional[str]) -> Di
 
 
 def _error_result(storage_path: str, message: str) -> Dict[str, Any]:
+    """Build a zero-counts result envelope so a failed worker still reports cleanly."""
     return {
         "timestamp": time.time(),
         "storage_path": storage_path,
@@ -387,6 +437,7 @@ def _error_result(storage_path: str, message: str) -> Dict[str, Any]:
 
 
 def _combine_results(results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Aggregate per-job results into a single summary when multiple paths ran."""
     combined: Dict[str, Any] = {
         "timestamp": time.time(),
         "total_jobs": len(results),
@@ -407,6 +458,20 @@ def _combine_results(results: List[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def main() -> None:
+    """CLI entry point: dispatch to S3 / local / watch / parallel modes.
+
+    Mode selection:
+
+    - ``--s3-bucket`` → single S3 ingestion job (local paths are ignored).
+    - ``--watch`` → poll each storage path on ``--poll-interval`` forever.
+    - Multiple ``--storage-path`` + ``--max-workers > 1`` → run jobs in a
+      ``ProcessPoolExecutor``.
+    - Otherwise → process storage paths sequentially.
+
+    Each mode ultimately funnels through ``_run_ingestion_job`` (local) or
+    ``_run_s3_ingestion_job`` (S3) and prints either the single result or a
+    combined summary.
+    """
     parser = argparse.ArgumentParser(description="Run PDF ingestion for downloaded drug papers.")
     parser.add_argument(
         "--storage-path",

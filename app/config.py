@@ -3,8 +3,7 @@ Configuration module for the Drug Repurposing Chat API.
 
 All settings are loaded from environment variables (or a .env file).
 Model names and API keys must never be hardcoded — use the variables
-defined here and set values in your .env file. See .env.example for
-the full list of supported variables.
+defined here and set values in your .env file.
 """
 
 from pydantic_settings import BaseSettings

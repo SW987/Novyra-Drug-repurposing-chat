@@ -5,19 +5,22 @@ Simple test script for PDF processing and Gemini integration
 
 import os
 import sys
+from pathlib import Path
 sys.path.append('.')
 
 from app.config import get_settings
 from app.utils import extract_text_from_pdf, parse_filename, chunk_text
 import google.generativeai as genai
 
+# Default docs root: ``<project>/data/docs`` (matches the project's DOCS_DIR).
+DOCS_DIR = Path(__file__).resolve().parents[1] / "data" / "docs"
+
 
 def test_pdf_extraction():
     """Test PDF text extraction from one of the files."""
     print("🔄 Testing PDF text extraction...")
 
-    # Hardcode path for testing
-    pdf_path = r"C:\Users\saadw\Downloads\repurposing research papers for 3 drugs\aspirin repurposing\aspirin_repurposing_PMC11242460.pdf"
+    pdf_path = str(DOCS_DIR / "aspirin repurposing" / "aspirin_repurposing_PMC11242460.pdf")
 
     if not os.path.exists(pdf_path):
         print(f"❌ PDF file not found: {pdf_path}")

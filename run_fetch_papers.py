@@ -1,3 +1,25 @@
+"""
+PubMed paper fetcher — Phase 2 of the corpus build pipeline.
+
+Reads a CSV of drug names and drives ``app.paper_fetcher.PaperFetchPipeline``
+to:
+
+1. Search PubMed for each drug's repurposing papers.
+2. Download open-access PDFs from PubMed Central.
+3. Optionally mirror PDFs to S3 (or store only in S3 with ``--s3-only``).
+4. Write per-run logs next to the storage path:
+   - ``drug_retrieval_log_<csv>.csv`` — outcome per drug (downloaded count,
+     duration).
+   - ``no_papers_found_<csv>.csv`` — drugs whose search returned zero hits.
+
+Supports resume/restart by replaying the retrieval log so an interrupted
+run can pick up where it stopped. Drugs that yield fewer than three papers
+are discarded to keep the corpus dense.
+
+The folder layout produced here is the input expected by
+``run_ingestion.py`` (Phase 3), which embeds the PDFs into ChromaDB.
+"""
+
 import argparse
 import csv
 import sys
@@ -31,6 +53,7 @@ def _render_progress(current: int, total: int, width: int = 30) -> str:
 
 
 def _detect_delimiter(sample: str) -> str:
+    """Best-effort delimiter sniff so the CSV works with comma/tab/semicolon exports."""
     try:
         return csv.Sniffer().sniff(sample, delimiters=[",", "\t", ";", "|"]).delimiter
     except csv.Error:
@@ -38,6 +61,7 @@ def _detect_delimiter(sample: str) -> str:
 
 
 def _normalize_fieldnames(fieldnames: list[str] | None) -> list[str]:
+    """Strip the UTF-8 BOM and surrounding whitespace from CSV headers."""
     if not fieldnames:
         return []
     cleaned = []
@@ -47,6 +71,7 @@ def _normalize_fieldnames(fieldnames: list[str] | None) -> list[str]:
 
 
 def _load_drugs_from_csv(csv_path: Path) -> list[str]:
+    """Return drug names from the ``drug`` column of ``csv_path``."""
     drugs = []
     with csv_path.open("r", newline="", encoding="utf-8") as handle:
         sample = handle.read(2048)
@@ -65,6 +90,7 @@ def _load_drugs_from_csv(csv_path: Path) -> list[str]:
 
 
 def _append_no_papers_csv(csv_path: Path, rows: list[dict[str, str]]) -> None:
+    """Append drugs that returned zero PubMed hits to the no-papers log."""
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     file_exists = csv_path.exists()
     with csv_path.open("a", newline="", encoding="utf-8") as handle:
@@ -76,6 +102,7 @@ def _append_no_papers_csv(csv_path: Path, rows: list[dict[str, str]]) -> None:
 
 
 def _append_retrieval_log(csv_path: Path, row: dict[str, str]) -> None:
+    """Record the outcome of one drug to the retrieval log (drives resume logic)."""
     csv_path.parent.mkdir(parents=True, exist_ok=True)
     file_exists = csv_path.exists()
     with csv_path.open("a", newline="", encoding="utf-8") as handle:
@@ -87,6 +114,7 @@ def _append_retrieval_log(csv_path: Path, row: dict[str, str]) -> None:
 
 
 def _load_processed_drugs(csv_path: Path) -> set[str]:
+    """Replay the retrieval log to find which drugs were already attempted."""
     if not csv_path.exists():
         return set()
     with csv_path.open("r", newline="", encoding="utf-8") as handle:
@@ -100,6 +128,7 @@ def _load_processed_drugs(csv_path: Path) -> set[str]:
 
 
 def _prompt_resume_choice() -> str:
+    """Interactive resume/restart prompt when an existing log is detected."""
     prompt = (
         "Retrieval log found. Choose an option:\n"
         "  1) Resume (skip already processed drugs)\n"
@@ -114,6 +143,13 @@ def _prompt_resume_choice() -> str:
 
 
 def main() -> None:
+    """Parse CLI args, load the drug CSV, and run the fetch loop end-to-end.
+
+    Per drug: search PubMed, download up to ``--max-papers-per-drug`` PDFs,
+    discard the batch if fewer than three papers were retrieved, and append
+    the result to the retrieval log. Retries are applied per drug with a
+    linear backoff (``--api-retries`` × ``--api-retry-delay``).
+    """
     parser = argparse.ArgumentParser(description="Fetch drug repurposing papers from a CSV list.")
     parser.add_argument(
         "--csv-path",

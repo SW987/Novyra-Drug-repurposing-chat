@@ -12,10 +12,14 @@ import gzip
 import shutil
 import tarfile
 import time
+from pathlib import Path
 
 # Import your existing validation function
 from app.ingestion_pipeline import is_valid_pdf, PDFIngestionPipeline
 from app.config import get_settings
+
+# Default docs root: ``<project>/data/docs`` (matches the project's DOCS_DIR).
+DOCS_DIR = Path(__file__).resolve().parents[1] / "data" / "docs"
 
 
 # ---------------------------- YOUR EXISTING VALIDATION CODE ----------------------------
@@ -37,9 +41,9 @@ def integrate_with_existing_pipeline():
 
     # Example: Process your existing directories
     drug_directories = {
-        "aspirin": r"C:\Users\saadw\Downloads\repurposing research papers for 3 drugs\aspirin repurposing",
-        "apomorphine": r"C:\Users\saadw\Downloads\repurposing research papers for 3 drugs\apomorphine repurposing",
-        "insulin": r"C:\Users\saadw\Downloads\repurposing research papers for 3 drugs\insulin repurposing"
+        "aspirin": str(DOCS_DIR / "aspirin repurposing"),
+        "apomorphine": str(DOCS_DIR / "apomorphine repurposing"),
+        "insulin": str(DOCS_DIR / "insulin repurposing"),
     }
 
     total_processed = 0
